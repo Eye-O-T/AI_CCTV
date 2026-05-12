@@ -1,0 +1,13 @@
+transformers>=4.51.0
+accelerate
+pillow
+qwen-vl-utils
+bitsandbytes
+opencv-python
+ultralytics
+numpy
+matplotlib
+scipy
+pyyaml
+requests
+psutil
