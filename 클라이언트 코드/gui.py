@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QPushButton,
     QFrame,
+    QScrollArea,
 )
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QImage, QPixmap
@@ -288,8 +289,17 @@ class CCTVMainWindow(QMainWindow):
         event_label.setStyleSheet("color: #94a3b8; font-size: 14px;")
         right_layout.addWidget(event_label)
 
-        self.event_list = QVBoxLayout()
-        right_layout.addLayout(self.event_list)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("border: none;")
+
+        scroll_widget = QWidget()
+        self.event_list = QVBoxLayout(scroll_widget)
+        self.event_list.setAlignment(Qt.AlignTop)
+
+        scroll.setWidget(scroll_widget)
+
+        right_layout.addWidget(scroll)
         right_layout.addStretch()
 
         self.storage_label = QLabel(
@@ -415,6 +425,14 @@ class CCTVMainWindow(QMainWindow):
         layout.addWidget(desc_label)
 
         self.event_list.insertWidget(0, event_box)
+        if self.event_list.count() > 30:
+            old_item = self.event_list.takeAt(30)
+
+            if old_item:
+                widget = old_item.widget()
+
+                if widget:
+                    widget.deleteLater()
 
     def closeEvent(self, event):
         self.stop_video()
