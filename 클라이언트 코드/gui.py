@@ -53,15 +53,15 @@ class VideoWorker(QThread):
             self.vlm_worker = VLMWorker(self.state_manager)
 
     def run(self):
-        if self.use_vlm and self.vlm_worker is not None:
-            self.vlm_worker.start()
-
         if not self.stream.open():
             self.event_ready.emit({
                 "type": "error",
                 "message": "영상 스트림 열기 실패"
             })
             return
+
+        if self.use_vlm and self.vlm_worker is not None:
+            self.vlm_worker.start()
 
         while self.running:
             ret, frame = self.stream.read()
@@ -170,6 +170,9 @@ class VideoWorker(QThread):
 
     def stop(self):
         self.running = False
+        if self.use_vlm and self.vlm_worker is not None:
+            self.vlm_worker.stop()
+        self.stream.release()
         self.wait()
 
 
