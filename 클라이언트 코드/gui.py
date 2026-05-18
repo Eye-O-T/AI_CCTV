@@ -29,6 +29,7 @@ from full_body_checker import FullBodyChecker
 from crop_manager import CropManager
 from person_state_manager import PersonStateManager
 from vlm_worker import VLMWorker
+from recording_manager import RecordingManager
 
 
 class VideoWorker(QThread):
@@ -36,9 +37,9 @@ class VideoWorker(QThread):
     metrics_ready = pyqtSignal(dict)
     event_ready = pyqtSignal(dict)
 
-    def __init__(self, source=0, use_vlm=False):
+    def __init__(self, source=0, use_vlm=False, ai_cctv_path=""):
         super().__init__()
-        self.source = source
+        self.source = source    
         self.running = True
         self.use_vlm = use_vlm
 
@@ -47,6 +48,9 @@ class VideoWorker(QThread):
         self.full_body_checker = FullBodyChecker()
         self.crop_manager = CropManager()
         self.state_manager = PersonStateManager(disappear_timeout=3.0)
+        self.ai_cctv_path = ai_cctv_path
+        self.recording_manager = None
+
 
         self.vlm_worker = None
         if self.use_vlm:
@@ -60,6 +64,14 @@ class VideoWorker(QThread):
             })
             return
 
+        if self.ai_cctv_path:
+            fps = self.stream.get_fps()
+
+            self.recording_manager = RecordingManager(
+                base_dir=self.ai_cctv_path,
+                fps=fps
+            )
+
         if self.use_vlm and self.vlm_worker is not None:
             self.vlm_worker.start()
 
@@ -72,6 +84,8 @@ class VideoWorker(QThread):
                     "message": "프레임 수신 실패"
                 })
                 continue
+            if self.recording_manager is not None:
+                self.recording_manager.write_frame(frame)
 
             persons = self.tracker.track(frame)
 
@@ -166,12 +180,19 @@ class VideoWorker(QThread):
         if self.use_vlm and self.vlm_worker is not None:
             self.vlm_worker.stop()
 
+        if self.recording_manager is not None:
+            self.recording_manager.stop_recording()
         self.stream.release()
 
     def stop(self):
         self.running = False
+
         if self.use_vlm and self.vlm_worker is not None:
             self.vlm_worker.stop()
+
+        if self.recording_manager is not None:
+            self.recording_manager.stop_recording()
+
         self.stream.release()
         self.wait()
 
@@ -354,7 +375,11 @@ class CCTVMainWindow(QMainWindow):
 
         source = self.video_source
 
-        self.worker = VideoWorker(source=source, use_vlm=self.use_vlm)
+        self.worker = VideoWorker(
+            source=source,
+            use_vlm=self.use_vlm,
+            ai_cctv_path=self.ai_cctv_path
+        )
         self.worker.frame_ready.connect(self.update_frame)
         self.worker.metrics_ready.connect(self.update_metrics)
         self.worker.event_ready.connect(self.add_event)
