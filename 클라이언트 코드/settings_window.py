@@ -1,3 +1,5 @@
+import os
+
 from PyQt5.QtWidgets import (
     QDialog,
     QWidget,
@@ -11,6 +13,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QButtonGroup,
     QCheckBox,
+    QFileDialog,
 )
 from PyQt5.QtCore import Qt
 
@@ -21,6 +24,8 @@ class SettingsWindow(QDialog):
 
         self.selected_source = 0
         self.use_vlm = True
+        self.storage_root_path = ""
+        self.ai_cctv_path = ""
 
         self.setWindowTitle("설정")
         self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
@@ -58,12 +63,7 @@ class SettingsWindow(QDialog):
         self.pages.setStyleSheet("background-color: #1e293b; border-radius: 10px;")
 
         self.pages.addWidget(self.create_basic_page())
-        self.pages.addWidget(
-            self.create_empty_page(
-                "저장 설정",
-                "저장 위치 / 원본 영상 저장 단위 / 이벤트 클립 길이 설정 영역"
-            )
-        )
+        self.pages.addWidget(self.create_storage_page())
 
         self.btn_basic.clicked.connect(lambda: self.pages.setCurrentIndex(0))
         self.btn_storage.clicked.connect(lambda: self.pages.setCurrentIndex(1))
@@ -235,7 +235,7 @@ class SettingsWindow(QDialog):
 
         self.accept()
 
-    def create_empty_page(self, title_text, desc_text):
+    def create_empty_page(self, title_text, desc_text): # 나중에 설정 카테고리 추가할때를 위해 보존
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(30, 30, 30, 30)
@@ -253,3 +253,189 @@ class SettingsWindow(QDialog):
         layout.addStretch()
 
         return page
+    
+    def create_storage_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(18)
+
+        title = QLabel("저장 설정")
+        title.setStyleSheet("font-size: 24px; font-weight: bold;")
+        layout.addWidget(title)
+
+        desc = QLabel("원본 영상과 이벤트 클립 저장 방식을 설정합니다.")
+        desc.setStyleSheet("font-size: 15px; color: #94a3b8;")
+        layout.addWidget(desc)
+
+        storage_box = QFrame()
+        storage_box.setStyleSheet("background-color: #0f172a; border-radius: 8px;")
+
+        storage_layout = QVBoxLayout(storage_box)
+        storage_layout.setContentsMargins(20, 20, 20, 20)
+        storage_layout.setSpacing(18)
+
+        path_label = QLabel("영상 저장 경로 설정")
+        path_label.setStyleSheet("font-size: 17px; font-weight: bold;")
+        storage_layout.addWidget(path_label)
+
+        path_desc = QLabel(
+            "위치를 선택하면 해당 위치에 AI_CCTV 폴더가 생성되고,\n"
+            "하위 폴더로 원본 녹화본 / 이벤트 CLIP 폴더가 생성됩니다."
+        )
+        path_desc.setStyleSheet("font-size: 14px; color: #94a3b8;")
+        storage_layout.addWidget(path_desc)
+
+        path_row = QHBoxLayout()
+
+        self.storage_path_input = QLineEdit()
+        self.storage_path_input.setReadOnly(True)
+        self.storage_path_input.setMinimumHeight(40)
+        self.storage_path_input.setPlaceholderText("저장 위치를 선택하세요.")
+        self.storage_path_input.setStyleSheet(
+            "background-color: #1e293b; color: #f8fafc; "
+            "border: 1px solid #334155; border-radius: 6px; "
+            "padding: 10px; font-size: 14px;"
+        )
+
+        self.btn_select_storage_path = QPushButton("위치 선택")
+        self.btn_select_storage_path.setMinimumHeight(40)
+        self.btn_select_storage_path.setStyleSheet(
+            "background-color: #2563eb; color: white; padding: 8px 18px; "
+            "border-radius: 6px; font-weight: bold;"
+        )
+        self.btn_select_storage_path.clicked.connect(self.select_storage_path)
+
+        path_row.addWidget(self.storage_path_input, stretch=1)
+        path_row.addWidget(self.btn_select_storage_path)
+        storage_layout.addLayout(path_row)
+
+        original_unit_label = QLabel("원본 영상 저장 단위")
+        original_unit_label.setStyleSheet(
+            "font-size: 17px; font-weight: bold; margin-top: 10px;"
+        )
+        storage_layout.addWidget(original_unit_label)
+
+        self.original_10s_radio = QRadioButton("10초")
+        self.original_30s_radio = QRadioButton("30초")
+        self.original_1m_radio = QRadioButton("1분")
+
+        self.original_unit_group = QButtonGroup(self)
+        self.original_unit_group.addButton(self.original_10s_radio)
+        self.original_unit_group.addButton(self.original_30s_radio)
+        self.original_unit_group.addButton(self.original_1m_radio)
+
+        self.original_10s_radio.setChecked(True)
+
+        original_row = QHBoxLayout()
+        for radio in [
+            self.original_10s_radio,
+            self.original_30s_radio,
+            self.original_1m_radio,
+        ]:
+            radio.setStyleSheet(
+                "QRadioButton { font-size: 15px; color: #f8fafc; spacing: 8px; }"
+            )
+            original_row.addWidget(radio)
+
+        original_row.addStretch()
+        storage_layout.addLayout(original_row)
+
+        clip_length_label = QLabel("클립당 최대 클립 길이")
+        clip_length_label.setStyleSheet(
+            "font-size: 17px; font-weight: bold; margin-top: 10px;"
+        )
+        storage_layout.addWidget(clip_length_label)
+
+        self.clip_10s_radio = QRadioButton("10초")
+        self.clip_30s_radio = QRadioButton("30초")
+        self.clip_full_radio = QRadioButton("전체(이벤트 전체)")
+
+        self.clip_length_group = QButtonGroup(self)
+        self.clip_length_group.addButton(self.clip_10s_radio)
+        self.clip_length_group.addButton(self.clip_30s_radio)
+        self.clip_length_group.addButton(self.clip_full_radio)
+
+        self.clip_10s_radio.setChecked(True)
+
+        clip_row = QHBoxLayout()
+        for radio in [
+            self.clip_10s_radio,
+            self.clip_30s_radio,
+            self.clip_full_radio,
+        ]:
+            radio.setStyleSheet(
+                "QRadioButton { font-size: 15px; color: #f8fafc; spacing: 8px; }"
+            )
+            clip_row.addWidget(radio)
+
+        clip_row.addStretch()
+        storage_layout.addLayout(clip_row)
+
+        self.storage_result_label = QLabel("")
+        self.storage_result_label.setStyleSheet("font-size: 14px; color: #22c55e;")
+        storage_layout.addWidget(self.storage_result_label)
+
+        layout.addWidget(storage_box)
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+
+        self.btn_storage_save = QPushButton("적용")
+        self.btn_storage_save.setStyleSheet(
+            "background-color: #2563eb; color: white; padding: 10px 24px; "
+            "border-radius: 6px; font-weight: bold;"
+        )
+
+        self.btn_storage_save.clicked.connect(self.save_storage_settings)
+
+        button_layout.addWidget(self.btn_storage_save)
+
+        layout.addLayout(button_layout)
+
+        self.storage_save_result = QLabel("")
+        self.storage_save_result.setStyleSheet(
+            "font-size: 14px; color: #22c55e;"
+        )
+        layout.addWidget(self.storage_save_result)
+
+        layout.addStretch()
+
+        return page
+
+    def select_storage_path(self):
+        selected_path = QFileDialog.getExistingDirectory(
+            self,
+            "영상 저장 위치 선택"
+        )
+
+        if not selected_path:
+            return
+
+        ai_cctv_path = os.path.join(selected_path, "AI_CCTV")
+        original_path = os.path.join(ai_cctv_path, "원본 녹화본")
+        event_clip_path = os.path.join(ai_cctv_path, "이벤트 CLIP")
+
+        os.makedirs(original_path, exist_ok=True)
+        os.makedirs(event_clip_path, exist_ok=True)
+
+        self.storage_root_path = selected_path
+        self.ai_cctv_path = ai_cctv_path
+
+        self.storage_path_input.setText(ai_cctv_path)
+        self.storage_result_label.setText("저장 폴더가 생성되었습니다.")
+
+    def save_storage_settings(self):
+        if not self.ai_cctv_path:
+            self.storage_save_result.setStyleSheet(
+                "font-size: 14px; color: #ef4444;"
+            )
+            self.storage_save_result.setText("저장 경로를 먼저 선택하세요.")
+            return
+
+        self.storage_save_result.setStyleSheet(
+            "font-size: 14px; color: #22c55e;"
+        )
+        self.storage_save_result.setText("저장 설정이 적용되었습니다.")
+
+        self.accept()

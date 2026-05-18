@@ -191,6 +191,8 @@ class CCTVMainWindow(QMainWindow):
         self.disappear_count = 0
         self.video_source = 0
         self.use_vlm = True
+        self.storage_root_path = ""
+        self.ai_cctv_path = ""
 
         self.init_ui()
 
@@ -316,7 +318,9 @@ class CCTVMainWindow(QMainWindow):
         right_layout.addStretch()
 
         self.storage_label = QLabel(
-            "저장 경로\n./cctv\n./events\n\n저장 기능 연동 예정"
+            "저장 경로\n"
+            "저장 경로가 설정되지 않았습니다.\n\n"
+            "설정 - 저장 설정에서 위치를 선택하세요."
         )
         self.storage_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         right_layout.addWidget(self.storage_label)
@@ -379,9 +383,27 @@ class CCTVMainWindow(QMainWindow):
             self.video_source = dialog.selected_source
             self.use_vlm = dialog.use_vlm
 
+            self.storage_root_path = dialog.storage_root_path
+            self.ai_cctv_path = dialog.ai_cctv_path
+
             self.cam_status.setText(
                 f"● CAM-01 · 입력 설정 완료: {self.video_source}"
             )
+
+            if self.ai_cctv_path:
+                self.storage_label.setText(
+                    "저장 경로\n"
+                    f"{self.ai_cctv_path}\n\n"
+                    "하위 폴더\n"
+                    "원본 녹화본\n"
+                    "이벤트 CLIP"
+                )
+            else:
+                self.storage_label.setText(
+                    "저장 경로\n"
+                    "저장 경로가 설정되지 않았습니다.\n\n"
+                    "설정 → 저장 설정에서 위치를 선택하세요."
+                )
 
     def update_frame(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
