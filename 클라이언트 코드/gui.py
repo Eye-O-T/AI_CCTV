@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QFrame,
     QScrollArea,
+    QDialog,
 )
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QImage, QPixmap
@@ -214,11 +215,18 @@ class CCTVMainWindow(QMainWindow):
             "border-radius: 5px; font-weight: bold;"
         )
         self.btn_stop.clicked.connect(self.stop_video)
+        self.btn_setting = QPushButton("설정")
+        self.btn_setting.setStyleSheet(
+            "background-color: #334155; color: white; padding: 8px 20px; "
+            "border-radius: 5px; font-weight: bold;"
+        )
+        self.btn_setting.clicked.connect(self.open_settings)
 
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         header_layout.addWidget(self.btn_start)
         header_layout.addWidget(self.btn_stop)
+        header_layout.addWidget(self.btn_setting)
 
         main_layout.addLayout(header_layout)
 
@@ -335,8 +343,8 @@ class CCTVMainWindow(QMainWindow):
         if self.worker is not None:
             return
 
-        # source = 0
-        source = "rtsp://192.168.10.2:8554/stream"
+        source = 0
+        # source = "rtsp://192.168.10.2:8554/stream"
 
         self.worker = VideoWorker(source=source, use_vlm=True)
         self.worker.frame_ready.connect(self.update_frame)
@@ -360,6 +368,28 @@ class CCTVMainWindow(QMainWindow):
             "background-color: #0f172a; border: 1px solid #ef4444; "
             "border-radius: 5px; padding: 15px; color: #ef4444;"
         )
+    def open_settings(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("설정")
+        dialog.setFixedSize(600, 400)
+        dialog.setStyleSheet(
+            "background-color: #0f172a; color: #f8fafc; font-family: Arial;"
+        )
+
+        layout = QVBoxLayout(dialog)
+
+        title = QLabel("설정 화면")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #94a3b8;")
+
+        empty_label = QLabel("설정 항목 추가 예정")
+        empty_label.setAlignment(Qt.AlignCenter)
+        empty_label.setStyleSheet("font-size: 18px; color: #64748b;")
+
+        layout.addWidget(title)
+        layout.addWidget(empty_label)
+
+        dialog.exec_()
 
     def update_frame(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
