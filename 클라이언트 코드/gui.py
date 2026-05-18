@@ -186,6 +186,7 @@ class CCTVMainWindow(QMainWindow):
         self.worker = None
         self.appear_count = 0
         self.disappear_count = 0
+        self.video_source = 0
 
         self.init_ui()
 
@@ -343,8 +344,7 @@ class CCTVMainWindow(QMainWindow):
         if self.worker is not None:
             return
 
-        source = 0
-        # source = "rtsp://192.168.10.2:8554/stream"
+        source = self.video_source
 
         self.worker = VideoWorker(source=source, use_vlm=True)
         self.worker.frame_ready.connect(self.update_frame)
@@ -370,7 +370,10 @@ class CCTVMainWindow(QMainWindow):
         )
     def open_settings(self):
         dialog = SettingsWindow(self)
-        dialog.exec_()
+
+        if dialog.exec_():
+            self.video_source = dialog.selected_source
+            self.cam_status.setText(f"● CAM-01 · 입력 설정 완료: {self.video_source}")
 
     def update_frame(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
