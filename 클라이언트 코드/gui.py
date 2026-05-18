@@ -18,10 +18,11 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QFrame,
     QScrollArea,
+    QDialog,
 )
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QImage, QPixmap
-
+from settings_window import SettingsWindow
 from video_stream import VideoStream
 from person_tracker import PersonTracker
 from full_body_checker import FullBodyChecker
@@ -185,6 +186,7 @@ class CCTVMainWindow(QMainWindow):
         self.worker = None
         self.appear_count = 0
         self.disappear_count = 0
+        self.video_source = 0
 
         self.init_ui()
 
@@ -214,11 +216,18 @@ class CCTVMainWindow(QMainWindow):
             "border-radius: 5px; font-weight: bold;"
         )
         self.btn_stop.clicked.connect(self.stop_video)
+        self.btn_setting = QPushButton("설정")
+        self.btn_setting.setStyleSheet(
+            "background-color: #334155; color: white; padding: 8px 20px; "
+            "border-radius: 5px; font-weight: bold;"
+        )
+        self.btn_setting.clicked.connect(self.open_settings)
 
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         header_layout.addWidget(self.btn_start)
         header_layout.addWidget(self.btn_stop)
+        header_layout.addWidget(self.btn_setting)
 
         main_layout.addLayout(header_layout)
 
@@ -335,8 +344,7 @@ class CCTVMainWindow(QMainWindow):
         if self.worker is not None:
             return
 
-        # source = 0
-        source = "rtsp://192.168.10.2:8554/stream"
+        source = self.video_source
 
         self.worker = VideoWorker(source=source, use_vlm=True)
         self.worker.frame_ready.connect(self.update_frame)
@@ -360,6 +368,12 @@ class CCTVMainWindow(QMainWindow):
             "background-color: #0f172a; border: 1px solid #ef4444; "
             "border-radius: 5px; padding: 15px; color: #ef4444;"
         )
+    def open_settings(self):
+        dialog = SettingsWindow(self)
+
+        if dialog.exec_():
+            self.video_source = dialog.selected_source
+            self.cam_status.setText(f"● CAM-01 · 입력 설정 완료: {self.video_source}")
 
     def update_frame(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

@@ -1,8 +1,10 @@
 venv/
+venv311/
 .env
 
 __pycache__/
 *.py[cod]
 
+*.jpg
 *.mp4
 *.pt
