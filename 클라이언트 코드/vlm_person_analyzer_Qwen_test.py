@@ -50,7 +50,10 @@ class PersonAnalyzer:
         end = time.time()
         print("모델 로딩 완료")
         print(f"모델 로딩 시간: {end - start:.2f}초")
-        print(self.model.hf_device_map)
+        if hasattr(self.model, "hf_device_map"):
+            print(self.model.hf_device_map)
+        else:
+            print("hf_device_map 없음")
     def _build_messages(self, image):
         return [
             {
