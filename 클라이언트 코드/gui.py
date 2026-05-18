@@ -190,6 +190,7 @@ class CCTVMainWindow(QMainWindow):
         self.appear_count = 0
         self.disappear_count = 0
         self.video_source = 0
+        self.use_vlm = True
 
         self.init_ui()
 
