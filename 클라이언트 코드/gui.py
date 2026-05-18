@@ -186,14 +186,6 @@ class VideoWorker(QThread):
 
     def stop(self):
         self.running = False
-
-        if self.use_vlm and self.vlm_worker is not None:
-            self.vlm_worker.stop()
-
-        if self.recording_manager is not None:
-            self.recording_manager.stop_recording()
-
-        self.stream.release()
         self.wait()
 
 
@@ -402,7 +394,13 @@ class CCTVMainWindow(QMainWindow):
             "border-radius: 5px; padding: 15px; color: #ef4444;"
         )
     def open_settings(self):
-        dialog = SettingsWindow(self)
+        dialog = SettingsWindow(
+            self,
+            video_source=self.video_source,
+            use_vlm=self.use_vlm,
+            storage_root_path=self.storage_root_path,
+            ai_cctv_path=self.ai_cctv_path
+        )
 
         if dialog.exec_():
             self.video_source = dialog.selected_source

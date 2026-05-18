@@ -12,21 +12,35 @@ class RecordingManager:
         self.frame_size = frame_size
 
         self.writer = None
-        self.recording_dir = os.path.join(self.base_dir, "원본 녹화본")
+
+        self.recording_dir = os.path.join(
+            self.base_dir,
+            "원본 녹화본"
+        )
 
         os.makedirs(self.recording_dir, exist_ok=True)
+
+        self.start_time_str = None
+        self.temp_save_path = None
 
     def start_recording(self, frame_size):
         self.frame_size = frame_size
 
-        now = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"original_{now}.mp4"
-        save_path = os.path.join(self.recording_dir, filename)
+        start_time = datetime.now()
+
+        self.start_time_str = start_time.strftime("%Y-%m-%d_%H-%M-%S")
+
+        temp_filename = f"recording_{self.start_time_str}.mp4"
+
+        self.temp_save_path = os.path.join(
+            self.recording_dir,
+            temp_filename
+        )
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 
         self.writer = cv2.VideoWriter(
-            save_path,
+            self.temp_save_path,
             fourcc,
             self.fps,
             self.frame_size
@@ -37,7 +51,8 @@ class RecordingManager:
             self.writer = None
             return False
 
-        print(f"원본 영상 저장 시작: {save_path}")
+        print(f"원본 영상 저장 시작: {self.temp_save_path}")
+
         return True
 
     def write_frame(self, frame):
@@ -57,4 +72,23 @@ class RecordingManager:
         if self.writer is not None:
             self.writer.release()
             self.writer = None
-            print("원본 영상 저장 종료")
+
+            end_time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            final_filename = f"{self.start_time_str}~{end_time_str}.mp4"
+
+            final_save_path = os.path.join(
+                self.recording_dir,
+                final_filename
+            )
+
+            try:
+                os.rename(
+                    self.temp_save_path,
+                    final_save_path
+                )
+
+                print(f"원본 영상 저장 종료: {final_save_path}")
+
+            except Exception as e:
+                print(f"파일 이름 변경 실패: {e}")

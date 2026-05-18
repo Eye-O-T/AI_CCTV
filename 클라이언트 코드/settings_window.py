@@ -19,13 +19,20 @@ from PyQt5.QtCore import Qt
 
 
 class SettingsWindow(QDialog):
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        parent=None,
+        video_source=0,
+        use_vlm=True,
+        storage_root_path="",
+        ai_cctv_path=""
+    ):
         super().__init__(parent)
 
-        self.selected_source = 0
-        self.use_vlm = True
-        self.storage_root_path = ""
-        self.ai_cctv_path = ""
+        self.selected_source = video_source
+        self.use_vlm = use_vlm
+        self.storage_root_path = storage_root_path
+        self.ai_cctv_path = ai_cctv_path
 
         self.setWindowTitle("설정")
         self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
@@ -95,13 +102,18 @@ class SettingsWindow(QDialog):
         layout.addWidget(desc)
 
         input_box = QFrame()
-        input_box.setStyleSheet("background-color: #0f172a; border-radius: 8px;")
+        input_box.setStyleSheet(
+            "background-color: #0f172a; border-radius: 8px;"
+        )
+
         input_layout = QVBoxLayout(input_box)
         input_layout.setContentsMargins(20, 20, 20, 20)
         input_layout.setSpacing(15)
 
         mode_label = QLabel("카메라 입력 방식")
-        mode_label.setStyleSheet("font-size: 17px; font-weight: bold;")
+        mode_label.setStyleSheet(
+            "font-size: 17px; font-weight: bold;"
+        )
         input_layout.addWidget(mode_label)
 
         self.radio_webcam = QRadioButton("웹캠 사용")
@@ -114,6 +126,7 @@ class SettingsWindow(QDialog):
                 spacing: 8px;
             }
         """
+
         self.radio_webcam.setStyleSheet(radio_style)
         self.radio_rtsp.setStyleSheet(radio_style)
 
@@ -121,16 +134,16 @@ class SettingsWindow(QDialog):
         self.input_mode_group.addButton(self.radio_webcam)
         self.input_mode_group.addButton(self.radio_rtsp)
 
-        self.radio_webcam.setChecked(True)
-
         input_layout.addWidget(self.radio_webcam)
 
         camera_label = QLabel("카메라 번호")
-        camera_label.setStyleSheet("font-size: 15px; font-weight: bold; padding-left: 24px;")
+        camera_label.setStyleSheet(
+            "font-size: 15px; font-weight: bold; padding-left: 24px;"
+        )
         input_layout.addWidget(camera_label)
 
         self.camera_index_input = QLineEdit()
-        self.camera_index_input.setText("0")
+        self.camera_index_input.setText("")
         self.camera_index_input.setMinimumHeight(40)
         self.camera_index_input.setPlaceholderText("예: 0")
         self.camera_index_input.setStyleSheet(
@@ -143,13 +156,16 @@ class SettingsWindow(QDialog):
         input_layout.addWidget(self.radio_rtsp)
 
         rtsp_label = QLabel("RTSP 주소")
-        rtsp_label.setStyleSheet("font-size: 15px; font-weight: bold; padding-left: 24px;")
+        rtsp_label.setStyleSheet(
+            "font-size: 15px; font-weight: bold; padding-left: 24px;"
+        )
         input_layout.addWidget(rtsp_label)
 
         self.rtsp_input = QLineEdit()
         self.rtsp_input.setMinimumHeight(40)
-        self.rtsp_input.setPlaceholderText("예: rtsp://192.168.10.2:8554/stream")
-        self.rtsp_input.setEnabled(False)
+        self.rtsp_input.setPlaceholderText(
+            "예: rtsp://192.168.10.2:8554/stream"
+        )
         self.rtsp_input.setStyleSheet(
             "background-color: #1e293b; color: #f8fafc; "
             "border: 1px solid #334155; border-radius: 6px; "
@@ -157,12 +173,24 @@ class SettingsWindow(QDialog):
         )
         input_layout.addWidget(self.rtsp_input)
 
+        # 이전 설정값 복원
+        if isinstance(self.selected_source, int):
+            self.radio_webcam.setChecked(True)
+            self.camera_index_input.setText(str(self.selected_source))
+        else:
+            self.radio_rtsp.setChecked(True)
+            self.rtsp_input.setText(str(self.selected_source))
+
+        self.update_input_mode()
+
         vlm_label = QLabel("AI 분석")
-        vlm_label.setStyleSheet("font-size: 17px; font-weight: bold; margin-top: 10px;")
+        vlm_label.setStyleSheet(
+            "font-size: 17px; font-weight: bold; margin-top: 10px;"
+        )
         input_layout.addWidget(vlm_label)
 
         self.vlm_checkbox = QCheckBox("VLM 의상 분석 사용")
-        self.vlm_checkbox.setChecked(True)
+        self.vlm_checkbox.setChecked(self.use_vlm)
         self.vlm_checkbox.setStyleSheet(
             "QCheckBox { font-size: 15px; color: #f8fafc; spacing: 8px; }"
         )
@@ -178,16 +206,20 @@ class SettingsWindow(QDialog):
 
         self.btn_save = QPushButton("저장")
         self.btn_save.setStyleSheet(
-            "background-color: #2563eb; color: white; padding: 10px 24px; "
+            "background-color: #2563eb; color: white; "
+            "padding: 10px 24px; "
             "border-radius: 6px; font-weight: bold;"
         )
+
         self.btn_save.clicked.connect(self.save_basic_settings)
 
         button_layout.addWidget(self.btn_save)
         layout.addLayout(button_layout)
 
         self.result_label = QLabel("")
-        self.result_label.setStyleSheet("font-size: 14px; color: #22c55e;")
+        self.result_label.setStyleSheet(
+            "font-size: 14px; color: #22c55e;"
+        )
         layout.addWidget(self.result_label)
 
         layout.addStretch()
@@ -289,6 +321,8 @@ class SettingsWindow(QDialog):
         path_row = QHBoxLayout()
 
         self.storage_path_input = QLineEdit()
+        if self.ai_cctv_path:
+            self.storage_path_input.setText(self.ai_cctv_path)
         self.storage_path_input.setReadOnly(True)
         self.storage_path_input.setMinimumHeight(40)
         self.storage_path_input.setPlaceholderText("저장 위치를 선택하세요.")
