@@ -53,15 +53,15 @@ class VideoWorker(QThread):
             self.vlm_worker = VLMWorker(self.state_manager)
 
     def run(self):
-        if self.use_vlm and self.vlm_worker is not None:
-            self.vlm_worker.start()
-
         if not self.stream.open():
             self.event_ready.emit({
                 "type": "error",
                 "message": "영상 스트림 열기 실패"
             })
             return
+
+        if self.use_vlm and self.vlm_worker is not None:
+            self.vlm_worker.start()
 
         while self.running:
             ret, frame = self.stream.read()
@@ -170,6 +170,9 @@ class VideoWorker(QThread):
 
     def stop(self):
         self.running = False
+        if self.use_vlm and self.vlm_worker is not None:
+            self.vlm_worker.stop()
+        self.stream.release()
         self.wait()
 
 
@@ -187,6 +190,9 @@ class CCTVMainWindow(QMainWindow):
         self.appear_count = 0
         self.disappear_count = 0
         self.video_source = 0
+        self.use_vlm = True
+        self.storage_root_path = ""
+        self.ai_cctv_path = ""
 
         self.init_ui()
 
@@ -312,7 +318,9 @@ class CCTVMainWindow(QMainWindow):
         right_layout.addStretch()
 
         self.storage_label = QLabel(
-            "저장 경로\n./cctv\n./events\n\n저장 기능 연동 예정"
+            "저장 경로\n"
+            "저장 경로가 설정되지 않았습니다.\n\n"
+            "설정 - 저장 설정에서 위치를 선택하세요."
         )
         self.storage_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         right_layout.addWidget(self.storage_label)
@@ -346,7 +354,7 @@ class CCTVMainWindow(QMainWindow):
 
         source = self.video_source
 
-        self.worker = VideoWorker(source=source, use_vlm=True)
+        self.worker = VideoWorker(source=source, use_vlm=self.use_vlm)
         self.worker.frame_ready.connect(self.update_frame)
         self.worker.metrics_ready.connect(self.update_metrics)
         self.worker.event_ready.connect(self.add_event)
@@ -373,7 +381,29 @@ class CCTVMainWindow(QMainWindow):
 
         if dialog.exec_():
             self.video_source = dialog.selected_source
-            self.cam_status.setText(f"● CAM-01 · 입력 설정 완료: {self.video_source}")
+            self.use_vlm = dialog.use_vlm
+
+            self.storage_root_path = dialog.storage_root_path
+            self.ai_cctv_path = dialog.ai_cctv_path
+
+            self.cam_status.setText(
+                f"● CAM-01 · 입력 설정 완료: {self.video_source}"
+            )
+
+            if self.ai_cctv_path:
+                self.storage_label.setText(
+                    "저장 경로\n"
+                    f"{self.ai_cctv_path}\n\n"
+                    "하위 폴더\n"
+                    "원본 녹화본\n"
+                    "이벤트 CLIP"
+                )
+            else:
+                self.storage_label.setText(
+                    "저장 경로\n"
+                    "저장 경로가 설정되지 않았습니다.\n\n"
+                    "설정 → 저장 설정에서 위치를 선택하세요."
+                )
 
     def update_frame(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
