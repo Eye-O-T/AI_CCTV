@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QImage, QPixmap
-
+from settings_window import SettingsWindow
 from video_stream import VideoStream
 from person_tracker import PersonTracker
 from full_body_checker import FullBodyChecker
@@ -369,26 +369,7 @@ class CCTVMainWindow(QMainWindow):
             "border-radius: 5px; padding: 15px; color: #ef4444;"
         )
     def open_settings(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("설정")
-        dialog.setFixedSize(600, 400)
-        dialog.setStyleSheet(
-            "background-color: #0f172a; color: #f8fafc; font-family: Arial;"
-        )
-
-        layout = QVBoxLayout(dialog)
-
-        title = QLabel("설정 화면")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #94a3b8;")
-
-        empty_label = QLabel("설정 항목 추가 예정")
-        empty_label.setAlignment(Qt.AlignCenter)
-        empty_label.setStyleSheet("font-size: 18px; color: #64748b;")
-
-        layout.addWidget(title)
-        layout.addWidget(empty_label)
-
+        dialog = SettingsWindow(self)
         dialog.exec_()
 
     def update_frame(self, frame):
