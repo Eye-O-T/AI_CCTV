@@ -349,7 +349,7 @@ class CCTVMainWindow(QMainWindow):
 
         source = self.video_source
 
-        self.worker = VideoWorker(source=source, use_vlm=True)
+        self.worker = VideoWorker(source=source, use_vlm=self.use_vlm)
         self.worker.frame_ready.connect(self.update_frame)
         self.worker.metrics_ready.connect(self.update_metrics)
         self.worker.event_ready.connect(self.add_event)
@@ -376,7 +376,11 @@ class CCTVMainWindow(QMainWindow):
 
         if dialog.exec_():
             self.video_source = dialog.selected_source
-            self.cam_status.setText(f"● CAM-01 · 입력 설정 완료: {self.video_source}")
+            self.use_vlm = dialog.use_vlm
+
+            self.cam_status.setText(
+                f"● CAM-01 · 입력 설정 완료: {self.video_source}"
+            )
 
     def update_frame(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
