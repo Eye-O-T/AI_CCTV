@@ -37,7 +37,13 @@ class VideoWorker(QThread):
     metrics_ready = pyqtSignal(dict)
     event_ready = pyqtSignal(dict)
 
-    def __init__(self, source=0, use_vlm=False, ai_cctv_path=""):
+    def __init__(
+        self,
+        source=0,
+        use_vlm=False,
+        ai_cctv_path="",
+        original_segment_seconds=10
+    ):
         super().__init__()
         self.source = source    
         self.running = True
@@ -49,6 +55,7 @@ class VideoWorker(QThread):
         self.crop_manager = CropManager()
         self.state_manager = PersonStateManager(disappear_timeout=3.0)
         self.ai_cctv_path = ai_cctv_path
+        self.original_segment_seconds = original_segment_seconds
         self.recording_manager = None
 
 
@@ -69,7 +76,8 @@ class VideoWorker(QThread):
 
             self.recording_manager = RecordingManager(
                 base_dir=self.ai_cctv_path,
-                fps=fps
+                fps=fps,
+                segment_seconds=self.original_segment_seconds
             )
 
         if self.use_vlm and self.vlm_worker is not None:
@@ -206,6 +214,7 @@ class CCTVMainWindow(QMainWindow):
         self.use_vlm = True
         self.storage_root_path = ""
         self.ai_cctv_path = ""
+        self.original_segment_seconds = 10
 
         self.init_ui()
 
@@ -370,7 +379,8 @@ class CCTVMainWindow(QMainWindow):
         self.worker = VideoWorker(
             source=source,
             use_vlm=self.use_vlm,
-            ai_cctv_path=self.ai_cctv_path
+            ai_cctv_path=self.ai_cctv_path,
+            original_segment_seconds=self.original_segment_seconds
         )
         self.worker.frame_ready.connect(self.update_frame)
         self.worker.metrics_ready.connect(self.update_metrics)
@@ -399,7 +409,8 @@ class CCTVMainWindow(QMainWindow):
             video_source=self.video_source,
             use_vlm=self.use_vlm,
             storage_root_path=self.storage_root_path,
-            ai_cctv_path=self.ai_cctv_path
+            ai_cctv_path=self.ai_cctv_path,
+            original_segment_seconds=self.original_segment_seconds
         )
 
         if dialog.exec_():
@@ -408,6 +419,7 @@ class CCTVMainWindow(QMainWindow):
 
             self.storage_root_path = dialog.storage_root_path
             self.ai_cctv_path = dialog.ai_cctv_path
+            self.original_segment_seconds = dialog.original_segment_seconds
 
             self.cam_status.setText(
                 f"● CAM-01 · 입력 설정 완료: {self.video_source}"

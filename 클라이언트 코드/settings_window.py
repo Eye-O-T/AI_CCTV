@@ -25,7 +25,8 @@ class SettingsWindow(QDialog):
         video_source=0,
         use_vlm=True,
         storage_root_path="",
-        ai_cctv_path=""
+        ai_cctv_path="",
+        original_segment_seconds=10
     ):
         super().__init__(parent)
 
@@ -33,6 +34,7 @@ class SettingsWindow(QDialog):
         self.use_vlm = use_vlm
         self.storage_root_path = storage_root_path
         self.ai_cctv_path = ai_cctv_path
+        self.original_segment_seconds = original_segment_seconds
 
         self.setWindowTitle("설정")
         self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
@@ -102,18 +104,14 @@ class SettingsWindow(QDialog):
         layout.addWidget(desc)
 
         input_box = QFrame()
-        input_box.setStyleSheet(
-            "background-color: #0f172a; border-radius: 8px;"
-        )
+        input_box.setStyleSheet("background-color: #0f172a; border-radius: 8px;")
 
         input_layout = QVBoxLayout(input_box)
         input_layout.setContentsMargins(20, 20, 20, 20)
         input_layout.setSpacing(15)
 
         mode_label = QLabel("카메라 입력 방식")
-        mode_label.setStyleSheet(
-            "font-size: 17px; font-weight: bold;"
-        )
+        mode_label.setStyleSheet("font-size: 17px; font-weight: bold;")
         input_layout.addWidget(mode_label)
 
         self.radio_webcam = QRadioButton("웹캠 사용")
@@ -163,9 +161,7 @@ class SettingsWindow(QDialog):
 
         self.rtsp_input = QLineEdit()
         self.rtsp_input.setMinimumHeight(40)
-        self.rtsp_input.setPlaceholderText(
-            "예: rtsp://192.168.10.2:8554/stream"
-        )
+        self.rtsp_input.setPlaceholderText("예: rtsp://192.168.10.2:8554/stream")
         self.rtsp_input.setStyleSheet(
             "background-color: #1e293b; color: #f8fafc; "
             "border: 1px solid #334155; border-radius: 6px; "
@@ -173,7 +169,6 @@ class SettingsWindow(QDialog):
         )
         input_layout.addWidget(self.rtsp_input)
 
-        # 이전 설정값 복원
         if isinstance(self.selected_source, int):
             self.radio_webcam.setChecked(True)
             self.camera_index_input.setText(str(self.selected_source))
@@ -184,9 +179,7 @@ class SettingsWindow(QDialog):
         self.update_input_mode()
 
         vlm_label = QLabel("AI 분석")
-        vlm_label.setStyleSheet(
-            "font-size: 17px; font-weight: bold; margin-top: 10px;"
-        )
+        vlm_label.setStyleSheet("font-size: 17px; font-weight: bold; margin-top: 10px;")
         input_layout.addWidget(vlm_label)
 
         self.vlm_checkbox = QCheckBox("VLM 의상 분석 사용")
@@ -207,19 +200,15 @@ class SettingsWindow(QDialog):
         self.btn_save = QPushButton("저장")
         self.btn_save.setStyleSheet(
             "background-color: #2563eb; color: white; "
-            "padding: 10px 24px; "
-            "border-radius: 6px; font-weight: bold;"
+            "padding: 10px 24px; border-radius: 6px; font-weight: bold;"
         )
-
         self.btn_save.clicked.connect(self.save_basic_settings)
 
         button_layout.addWidget(self.btn_save)
         layout.addLayout(button_layout)
 
         self.result_label = QLabel("")
-        self.result_label.setStyleSheet(
-            "font-size: 14px; color: #22c55e;"
-        )
+        self.result_label.setStyleSheet("font-size: 14px; color: #22c55e;")
         layout.addWidget(self.result_label)
 
         layout.addStretch()
@@ -267,7 +256,7 @@ class SettingsWindow(QDialog):
 
         self.accept()
 
-    def create_empty_page(self, title_text, desc_text): # 나중에 설정 카테고리 추가할때를 위해 보존
+    def create_empty_page(self, title_text, desc_text):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(30, 30, 30, 30)
@@ -285,7 +274,7 @@ class SettingsWindow(QDialog):
         layout.addStretch()
 
         return page
-    
+
     def create_storage_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -359,7 +348,12 @@ class SettingsWindow(QDialog):
         self.original_unit_group.addButton(self.original_30s_radio)
         self.original_unit_group.addButton(self.original_1m_radio)
 
-        self.original_10s_radio.setChecked(True)
+        if self.original_segment_seconds == 10:
+            self.original_10s_radio.setChecked(True)
+        elif self.original_segment_seconds == 30:
+            self.original_30s_radio.setChecked(True)
+        else:
+            self.original_1m_radio.setChecked(True)
 
         original_row = QHBoxLayout()
         for radio in [
@@ -420,17 +414,13 @@ class SettingsWindow(QDialog):
             "background-color: #2563eb; color: white; padding: 10px 24px; "
             "border-radius: 6px; font-weight: bold;"
         )
-
         self.btn_storage_save.clicked.connect(self.save_storage_settings)
 
         button_layout.addWidget(self.btn_storage_save)
-
         layout.addLayout(button_layout)
 
         self.storage_save_result = QLabel("")
-        self.storage_save_result.setStyleSheet(
-            "font-size: 14px; color: #22c55e;"
-        )
+        self.storage_save_result.setStyleSheet("font-size: 14px; color: #22c55e;")
         layout.addWidget(self.storage_save_result)
 
         layout.addStretch()
@@ -466,6 +456,13 @@ class SettingsWindow(QDialog):
             )
             self.storage_save_result.setText("저장 경로를 먼저 선택하세요.")
             return
+
+        if self.original_10s_radio.isChecked():
+            self.original_segment_seconds = 10
+        elif self.original_30s_radio.isChecked():
+            self.original_segment_seconds = 30
+        else:
+            self.original_segment_seconds = 60
 
         self.storage_save_result.setStyleSheet(
             "font-size: 14px; color: #22c55e;"
