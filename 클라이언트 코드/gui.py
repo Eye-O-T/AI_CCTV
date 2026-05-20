@@ -33,22 +33,23 @@ from recording_manager import RecordingManager
 
 
 class VideoWorker(QThread):
-    frame_ready = pyqtSignal(object)
-    metrics_ready = pyqtSignal(dict)
-    event_ready = pyqtSignal(dict)
+    frame_ready = pyqtSignal(object) # 분석이 끝난 프레임을 GUI 화면에 보내기
+    metrics_ready = pyqtSignal(dict) # 현재 객체 수, 추적 중인 사람 수 보내기
+    event_ready = pyqtSignal(dict) # 오류, 사라짐, VLM 큐 등록 같은 이벤트 보내기
 
-    def __init__(
+    def __init__( # start누르면 실행
         self,
         source=0,
-        use_vlm=False,
-        ai_cctv_path="",
-        original_segment_seconds=10
+        use_vlm=False, # vlm사용여부
+        ai_cctv_path="", # 녹화 폴더
+        original_segment_seconds=10 # 녹화 간격
     ):
         super().__init__()
         self.source = source    
         self.running = True
         self.use_vlm = use_vlm
 
+        # 클래스 연결
         self.stream = VideoStream(source=self.source)
         self.tracker = PersonTracker(model_path="yolo26s.pt")
         self.full_body_checker = FullBodyChecker()
@@ -59,11 +60,13 @@ class VideoWorker(QThread):
         self.recording_manager = None
 
 
+        # vlm켜져있을때만 vlmworker만듦
         self.vlm_worker = None
         if self.use_vlm:
             self.vlm_worker = VLMWorker(self.state_manager)
 
     def run(self):
+        # 스트림 열기
         if not self.stream.open():
             self.event_ready.emit({
                 "type": "error",
@@ -71,8 +74,9 @@ class VideoWorker(QThread):
             })
             return
 
+        # 저장경로 있으면 RecordingManager만들어 녹화하고 없으면 녹화 안함.
         if self.ai_cctv_path:
-            fps = self.stream.get_fps()
+            fps = self.stream.get_fps() # 현재 영상 스트림에서 fps가져오기. 이게 있어야 녹화 정상적으로 가능
 
             self.recording_manager = RecordingManager(
                 base_dir=self.ai_cctv_path,
@@ -80,9 +84,11 @@ class VideoWorker(QThread):
                 segment_seconds=self.original_segment_seconds
             )
 
+        # vlm 켜져있을때만 vlmworker실행
         if self.use_vlm and self.vlm_worker is not None:
             self.vlm_worker.start()
 
+        
         while self.running:
             ret, frame = self.stream.read()
 
@@ -92,29 +98,43 @@ class VideoWorker(QThread):
                     "message": "프레임 수신 실패"
                 })
                 continue
+            # RecordingManager가 만들어져있으면 현재 프레임 저장
+            # YOLO 바운딩박스 그려지기 전의 프레임 저장
             if self.recording_manager is not None:
                 self.recording_manager.write_frame(frame)
 
+            # 프레임에서 yolo분석, 객체 추적
             persons = self.tracker.track(frame)
+            """
+            이렇게 반환되는데 인물 여러멍이면 리스트로 반환
+            {
+                "person_id": 1,
+                "bbox": [x1, y1, x2, y2],
+                "conf": 0.87
+            },
+            """
 
-            for person in persons:
+            for person in persons: # 사람마다 처리.
                 person_id = person["person_id"]
                 bbox = person["bbox"]
                 conf = person["conf"]
 
-                x1, y1, x2, y2 = map(int, bbox)
+                x1, y1, x2, y2 = map(int, bbox) # opencv로 박스 그리려면 정수로 바꿔야해서 int형으로 변환
 
+                # 전신 검사 여부 체크
                 is_full_body = self.full_body_checker.is_full_body_visible(
                     bbox,
                     frame.shape
                 )
 
+                # person_id 상태 업데이트
                 self.state_manager.update_person(
                     person_id=person_id,
                     bbox=bbox,
                     is_full_body=is_full_body
                 )
 
+                # vlm켜져있고, 사람 전신 보이고, 해당 인물 crop이미지가 저장되어있지 않다면 crop저장
                 if (
                     self.use_vlm
                     and is_full_body
@@ -126,29 +146,33 @@ class VideoWorker(QThread):
                         person_id=person_id
                     )
 
+                    # 인물 crop상태 업데이트
                     if crop_path is not None:
                         self.state_manager.mark_crop_saved(person_id, crop_path)
-
+                        # vlmworker작업큐에 crop이미지 추가(비동기 스레드 처리)
                         if self.vlm_worker is not None:
                             self.vlm_worker.add_task(person_id, crop_path)
 
+                        # gui 이벤트 표시용
                         self.event_ready.emit({
                             "type": "vlm_queue",
                             "person_id": person_id,
                             "time": datetime.now().strftime("%H:%M:%S")
                         })
 
+                # 화면에 전신여부 체크용
                 status = self.full_body_checker.get_status_text(
                     bbox,
                     frame.shape
                 )
-
+                # 바운딩박스 색깔 - 전신 : 초록, 전신x : 빨강
                 color = (0, 255, 0) if is_full_body else (0, 0, 255)
 
+                # 바운딩박스 그리기
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
+                # 사람 상태 가져와서 vlm 완료 여부 표시
                 state = self.state_manager.get_state(person_id)
-
                 vlm_text = ""
                 if state is not None and state.get("vlm_done", False):
                     vlm_text = " VLM_DONE"
@@ -164,9 +188,8 @@ class VideoWorker(QThread):
                     color,
                     2
                 )
-
+            # 사라진 사람 메모리에서 제거 후 업데이트
             removed_ids = self.state_manager.remove_disappeared_persons()
-
             for removed_id in removed_ids:
                 self.event_ready.emit({
                     "type": "disappear",
@@ -174,17 +197,20 @@ class VideoWorker(QThread):
                     "time": datetime.now().strftime("%H:%M:%S")
                 })
 
+            # 현재 PersonStateManager(상태관리자)에 남아있는 사람 수
             tracked_total = 0
             if hasattr(self.state_manager, "person_states"):
                 tracked_total = len(self.state_manager.person_states)
-
+            # GUI에 숫자 전송
             self.metrics_ready.emit({
                 "current_objects": len(persons),
                 "tracked_total": tracked_total
             })
-
+            # 바운딩박스와 라벨 그려진 프레임 GUI로 전송
+            # CCTVMainWindow.update_frame()에서 이 프레임 받아서 송출
             self.frame_ready.emit(frame)
 
+        # 반복문 종료시 실행(stop누르면 vlmworker종료, 녹화 종료, 스트림 해제)
         if self.use_vlm and self.vlm_worker is not None:
             self.vlm_worker.stop()
 
@@ -193,8 +219,8 @@ class VideoWorker(QThread):
         self.stream.release()
 
     def stop(self):
-        self.running = False
-        self.wait()
+        self.running = False # while 종료 요청
+        self.wait() #  VideoWorker 스레드가 완전히 끝날 때까지 기다림
 
 
 class CCTVMainWindow(QMainWindow):
