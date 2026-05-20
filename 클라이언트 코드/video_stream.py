@@ -5,11 +5,6 @@ import cv2
 
 class VideoStream:
     def __init__(self, source=0):
-        """
-        source:
-        - 웹캠: 0
-        - RTSP: "rtsp://192.168.10.2:8554/stream"
-        """
         self.source = source
         self.cap = None
 
@@ -24,12 +19,6 @@ class VideoStream:
         return True
 
     def read(self):
-        """
-        프레임 1장 읽기
-        return:
-        - ret: 성공 여부
-        - frame: 이미지 프레임
-        """
         if self.cap is None:
             return False, None
 
