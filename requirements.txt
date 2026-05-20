@@ -11,7 +11,6 @@ scipy
 pyyaml
 requests
 psutil
-mediapipe
 insightface
 onnxruntime
 PyQt5
