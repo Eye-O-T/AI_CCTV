@@ -1,7 +1,7 @@
 venv/
 venv311/
 .env
-
+venv311_AI/
 __pycache__/
 *.py[cod]
 
