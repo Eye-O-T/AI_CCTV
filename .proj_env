@@ -1,1 +1,2 @@
-dummy-discord-bot-token
+DISCORD_BOT_TOKEN=replace-me
+DISCORD_CHANNEL_ID=123456789012345678
