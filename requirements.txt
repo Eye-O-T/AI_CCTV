@@ -11,7 +11,7 @@ scipy
 pyyaml
 requests
 psutil
-mediapipe
 insightface
 onnxruntime
 discord.py>=2.0.0
+PyQt5

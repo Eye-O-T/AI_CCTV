@@ -2,6 +2,9 @@
 
 import threading
 import queue
+import torch
+import gc
+
 from vlm_person_analyzer_Qwen_test import PersonAnalyzer
 from chat_bot import chat_bot as chatbot
 
@@ -14,17 +17,29 @@ class VLMWorker:
         self.analyzer = None
 
     def start(self):
+        if self.thread is not None and self.thread.is_alive():
+            print("VLM Worker 이미 실행 중")
+            return
+
         self.running = True
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
     def add_task(self, person_id, crop_path):
+        if not self.running:
+            return
+
         self.task_queue.put((person_id, crop_path))
 
     def _run(self):
-        print("VLM 모델 로딩 중...")
-        self.analyzer = PersonAnalyzer()
-        print("VLM 모델 로딩 완료")
+        try:
+            print("VLM 모델 로딩 중...")
+            self.analyzer = PersonAnalyzer()
+            print("VLM 모델 로딩 완료")
+        except Exception as e:
+            print(f"VLM 모델 로딩 실패: {e}")
+            self.running = False
+            return
 
         while self.running:
             try:
@@ -49,8 +64,26 @@ class VLMWorker:
             finally:
                 self.task_queue.task_done()
 
+        self.cleanup()
+
     def stop(self):
         self.running = False
 
-        if self.thread is not None:
-            self.thread.join(timeout=2)
+        if self.thread is not None and self.thread.is_alive():
+            self.thread.join(timeout=10)
+
+        self.cleanup()
+
+    def cleanup(self):
+        if self.analyzer is not None:
+            try:
+                del self.analyzer
+            except Exception:
+                pass
+
+            self.analyzer = None
+
+        gc.collect()
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()

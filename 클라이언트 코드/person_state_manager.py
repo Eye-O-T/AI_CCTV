@@ -5,10 +5,6 @@ import time
 
 class PersonStateManager:
     def __init__(self, disappear_timeout=3.0):
-        """
-        disappear_timeout:
-        - 몇 초 이상 화면에 안 보이면 사라진 사람으로 볼지
-        """
         self.person_states = {}
         self.disappear_timeout = disappear_timeout
 
@@ -18,6 +14,7 @@ class PersonStateManager:
         return {
             "first_seen": now,
             "last_seen": now,
+            "bbox": None,
             "is_full_body": False,
             "crop_saved": False,
             "crop_path": None,
@@ -28,9 +25,6 @@ class PersonStateManager:
         }
 
     def update_person(self, person_id, bbox, is_full_body):
-        """
-        person_id 상태 생성/갱신
-        """
 
         now = time.time()
 
@@ -46,9 +40,6 @@ class PersonStateManager:
         return state
 
     def mark_crop_saved(self, person_id, crop_path):
-        """
-        crop 저장 완료 상태 기록
-        """
 
         if person_id not in self.person_states:
             self.person_states[person_id] = self.create_person_state()
@@ -57,9 +48,6 @@ class PersonStateManager:
         self.person_states[person_id]["crop_path"] = crop_path
 
     def mark_recording_started(self, person_id, clip_path=None):
-        """
-        클립 녹화 시작 상태 기록
-        """
 
         if person_id not in self.person_states:
             self.person_states[person_id] = self.create_person_state()
@@ -68,9 +56,6 @@ class PersonStateManager:
         self.person_states[person_id]["clip_path"] = clip_path
 
     def mark_recording_stopped(self, person_id):
-        """
-        클립 녹화 종료 상태 기록
-        """
 
         if person_id in self.person_states:
             self.person_states[person_id]["is_recording"] = False
@@ -102,10 +87,6 @@ class PersonStateManager:
         return state is not None and state["vlm_done"]
 
     def remove_disappeared_persons(self):
-        """
-        일정 시간 이상 안 보이는 person_id 제거
-        """
-
         now = time.time()
         removed_ids = []
 
