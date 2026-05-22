@@ -6,7 +6,7 @@ import torch
 import gc
 
 from vlm_person_analyzer_Qwen_test import PersonAnalyzer
-
+from chat_bot import chat_bot as chatbot
 
 class VLMWorker:
     def __init__(self, state_manager):
@@ -56,7 +56,8 @@ class VLMWorker:
 
                 print(f"ID {person_id} VLM 분석 결과:")
                 print(result)
-
+                chatbot.send_msg(result)
+                
             except Exception as e:
                 print(f"ID {person_id} VLM 분석 실패: {e}")
 
