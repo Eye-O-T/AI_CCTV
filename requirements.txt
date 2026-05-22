@@ -14,3 +14,4 @@ psutil
 mediapipe
 insightface
 onnxruntime
+discord.py>=2.0.0

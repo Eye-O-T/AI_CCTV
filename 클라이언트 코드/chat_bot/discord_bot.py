@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+from pathlib import Path
 import threading
 
 import discord
@@ -27,6 +28,21 @@ _default_sender_lock = threading.Lock()
 _default_sender: DiscordBotSender | None = None
 
 
+def _read_proj_env_value() -> str:
+    """루트의 .proj_env 파일에서 단일 값을 읽습니다."""
+    proj_env_path = Path(__file__).resolve().parents[2] / ".proj_env"
+
+    try:
+        for line in proj_env_path.read_text(encoding="utf-8").splitlines():
+            value = line.strip()
+            if value:
+                return value
+    except FileNotFoundError:
+        pass
+
+    return ""
+
+
 class DiscordBotSender:
     """Discord 봇 로그인과 메시지 전송을 담당하는 클래스입니다."""
 
@@ -34,19 +50,19 @@ class DiscordBotSender:
         """Discord 전송 객체를 초기화합니다.
 
         Args:
-            token: Discord Bot Token입니다. 없으면 DISCORD_BOT_TOKEN 환경변수를 사용합니다.
+            token: Discord Bot Token입니다. 없으면 루트의 .proj_env 파일을 사용합니다.
             channel_id: 메시지를 보낼 Discord 채널 ID입니다. 없으면 DISCORD_CHANNEL_ID 환경변수를 사용합니다.
         """
-        # 토큰은 코드에 직접 쓰지 않고 환경변수로 관리합니다.
-        # 실수로 GitHub에 토큰이 올라가는 사고를 방지하기 위함입니다.
-        self.token = (token or os.getenv("DISCORD_BOT_TOKEN", "")).strip()
+        # 토큰은 코드에 직접 쓰지 않고 루트의 .proj_env 파일에서 읽습니다.
+        # 파일이 없으면 기존 환경변수도 마지막으로 확인합니다.
+        self.token = (token or _read_proj_env_value() or os.getenv("DISCORD_BOT_TOKEN", "")).strip()
 
         # 채널 ID도 환경변수로 받습니다.
         # Discord 개발자 모드에서 채널을 우클릭해 "ID 복사"로 얻은 값을 넣으면 됩니다.
         raw_channel_id = channel_id if channel_id is not None else os.getenv("DISCORD_CHANNEL_ID", "")
 
         if not self.token:
-            raise RuntimeError("DISCORD_BOT_TOKEN 환경변수가 설정되어 있지 않습니다.")
+            raise RuntimeError("Discord 토큰이 .proj_env 파일이나 DISCORD_BOT_TOKEN 환경변수에 설정되어 있지 않습니다.")
 
         if raw_channel_id is None or str(raw_channel_id).strip() == "":
             raise RuntimeError("DISCORD_CHANNEL_ID 환경변수가 설정되어 있지 않습니다.")
@@ -232,7 +248,7 @@ def send_message(content: str) -> None:
 
     with _default_sender_lock:
         # sender는 첫 메시지 전송 시점에 생성합니다.
-        # 이렇게 하면 DISCORD_BOT_TOKEN이 없는 개발 환경에서도 import 자체는 실패하지 않습니다.
+        # 이렇게 하면 .proj_env나 DISCORD_BOT_TOKEN이 없는 개발 환경에서도 import 자체는 실패하지 않습니다.
         if _default_sender is None:
             _default_sender = DiscordBotSender()
 
