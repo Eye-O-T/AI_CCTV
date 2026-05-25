@@ -26,7 +26,8 @@ class SettingsWindow(QDialog):
         use_vlm=True,
         storage_root_path="",
         ai_cctv_path="",
-        original_segment_seconds=10
+        original_segment_seconds=10,
+        clip_max_seconds=10
     ):
         super().__init__(parent)
 
@@ -35,6 +36,7 @@ class SettingsWindow(QDialog):
         self.storage_root_path = storage_root_path
         self.ai_cctv_path = ai_cctv_path
         self.original_segment_seconds = original_segment_seconds
+        self.clip_max_seconds = clip_max_seconds
 
         self.setWindowTitle("설정")
         self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
@@ -384,7 +386,12 @@ class SettingsWindow(QDialog):
         self.clip_length_group.addButton(self.clip_30s_radio)
         self.clip_length_group.addButton(self.clip_full_radio)
 
-        self.clip_10s_radio.setChecked(True)
+        if self.clip_max_seconds == 10:
+            self.clip_10s_radio.setChecked(True)
+        elif self.clip_max_seconds == 30:
+            self.clip_30s_radio.setChecked(True)
+        else:
+            self.clip_full_radio.setChecked(True)
 
         clip_row = QHBoxLayout()
         for radio in [
@@ -463,6 +470,13 @@ class SettingsWindow(QDialog):
             self.original_segment_seconds = 30
         else:
             self.original_segment_seconds = 60
+
+        if self.clip_10s_radio.isChecked():
+            self.clip_max_seconds = 10
+        elif self.clip_30s_radio.isChecked():
+            self.clip_max_seconds = 30
+        else:
+            self.clip_max_seconds = None
 
         self.storage_save_result.setStyleSheet(
             "font-size: 14px; color: #22c55e;"
