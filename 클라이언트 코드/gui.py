@@ -41,6 +41,7 @@ class VideoWorker(QThread):
     def __init__( # start누르면 실행
         self,
         source=0,
+        use_yolo=True, # yolo 사용 여부
         use_vlm=False, # vlm사용여부
         ai_cctv_path="", # 녹화 폴더
         original_segment_seconds=10, # 녹화 간격
@@ -49,11 +50,12 @@ class VideoWorker(QThread):
         super().__init__()
         self.source = source    
         self.running = True
-        self.use_vlm = use_vlm
+        self.use_yolo = use_yolo
+        self.use_vlm = use_yolo and use_vlm
 
         # 클래스 연결
         self.stream = VideoStream(source=self.source)
-        self.tracker = PersonTracker(model_path="yolo26s.pt")
+        self.tracker = None
         self.full_body_checker = FullBodyChecker()
         self.crop_manager = CropManager()
         self.state_manager = PersonStateManager(disappear_timeout=3.0)
@@ -66,8 +68,29 @@ class VideoWorker(QThread):
 
         # vlm켜져있을때만 vlmworker만듦
         self.vlm_worker = None
-        if self.use_vlm:
+        if self.use_yolo and self.use_vlm:
             self.vlm_worker = VLMWorker(self.state_manager)
+
+    def disable_ai_pipeline(self, message):
+        self.use_yolo = False
+        self.use_vlm = False
+        self.tracker = None
+
+        if self.vlm_worker is not None:
+            self.vlm_worker.stop()
+            self.vlm_worker = None
+
+        if self.clip_manager is not None:
+            self.clip_manager.finish_all()
+            self.clip_manager = None
+
+        if hasattr(self.state_manager, "person_states"):
+            self.state_manager.person_states.clear()
+
+        self.event_ready.emit({
+            "type": "error",
+            "message": message
+        })
 
     def run(self):
         # 스트림 열기
@@ -87,15 +110,24 @@ class VideoWorker(QThread):
                 fps=fps,
                 segment_seconds=self.original_segment_seconds
             )
-            self.clip_manager = ClipManager(
-                base_dir=self.ai_cctv_path,
-                fps=fps,
-                max_clip_seconds=self.clip_max_seconds,
-                disappear_timeout=3.0
-            )
+            if self.use_yolo:
+                self.clip_manager = ClipManager(
+                    base_dir=self.ai_cctv_path,
+                    fps=fps,
+                    max_clip_seconds=self.clip_max_seconds,
+                    disappear_timeout=3.0
+                )
 
         # vlm 켜져있을때만 vlmworker실행
-        if self.use_vlm and self.vlm_worker is not None:
+        if self.use_yolo:
+            try:
+                self.tracker = PersonTracker(model_path="yolo26s.pt")
+            except Exception as e:
+                self.disable_ai_pipeline(
+                    f"YOLO 초기화 실패: CCTV 모드로 전환합니다. ({e})"
+                )
+
+        if self.use_yolo and self.use_vlm and self.vlm_worker is not None:
             self.vlm_worker.start()
 
         
@@ -113,9 +145,17 @@ class VideoWorker(QThread):
             if self.recording_manager is not None:
                 self.recording_manager.write_frame(frame)
 
-            # 프레임에서 yolo분석, 객체 추적
-            persons = self.tracker.track(frame)
-            clip_frame = frame.copy()
+            persons = []
+            clip_frame = None
+            if self.use_yolo and self.tracker is not None:
+                try:
+                    # 프레임에서 yolo분석, 객체 추적
+                    persons = self.tracker.track(frame)
+                    clip_frame = frame.copy()
+                except Exception as e:
+                    self.disable_ai_pipeline(
+                        f"YOLO 추론 실패: CCTV 모드로 전환합니다. ({e})"
+                    )
             """
             이렇게 반환되는데 인물 여러멍이면 리스트로 반환
             {
@@ -173,7 +213,7 @@ class VideoWorker(QThread):
                             "time": datetime.now().strftime("%H:%M:%S")
                         })
 
-                if self.clip_manager is not None:
+                if self.use_yolo and self.clip_manager is not None:
                     self.clip_manager.update_person(
                         person_id=person_id,
                         frame=clip_frame,
@@ -210,7 +250,9 @@ class VideoWorker(QThread):
                     2
                 )
             # 사라진 사람 메모리에서 제거 후 업데이트
-            removed_ids = self.state_manager.remove_disappeared_persons()
+            removed_ids = []
+            if self.use_yolo:
+                removed_ids = self.state_manager.remove_disappeared_persons()
             for removed_id in removed_ids:
                 if self.clip_manager is not None:
                     self.clip_manager.finish_person(removed_id)
@@ -235,7 +277,7 @@ class VideoWorker(QThread):
             self.frame_ready.emit(frame)
 
         # 반복문 종료시 실행(stop누르면 vlmworker종료, 녹화 종료, 스트림 해제)
-        if self.use_vlm and self.vlm_worker is not None:
+        if self.use_yolo and self.use_vlm and self.vlm_worker is not None:
             self.vlm_worker.stop()
 
         if self.recording_manager is not None:
@@ -265,6 +307,7 @@ class CCTVMainWindow(QMainWindow):
         self.appear_count = 0
         self.disappear_count = 0
         self.video_source = 0
+        self.use_yolo = True
         self.use_vlm = True
         self.storage_root_path = ""
         self.ai_cctv_path = ""
@@ -433,6 +476,7 @@ class CCTVMainWindow(QMainWindow):
 
         self.worker = VideoWorker(
             source=source,
+            use_yolo=self.use_yolo,
             use_vlm=self.use_vlm,
             ai_cctv_path=self.ai_cctv_path,
             original_segment_seconds=self.original_segment_seconds,
@@ -463,6 +507,7 @@ class CCTVMainWindow(QMainWindow):
         dialog = SettingsWindow(
             self,
             video_source=self.video_source,
+            use_yolo=self.use_yolo,
             use_vlm=self.use_vlm,
             storage_root_path=self.storage_root_path,
             ai_cctv_path=self.ai_cctv_path,
@@ -472,6 +517,7 @@ class CCTVMainWindow(QMainWindow):
 
         if dialog.exec_():
             self.video_source = dialog.selected_source
+            self.use_yolo = dialog.use_yolo
             self.use_vlm = dialog.use_vlm
 
             self.storage_root_path = dialog.storage_root_path
@@ -489,7 +535,7 @@ class CCTVMainWindow(QMainWindow):
                     f"{self.ai_cctv_path}\n\n"
                     "하위 폴더\n"
                     "원본 녹화본\n"
-                    "이벤트 CLIP"
+                    "이벤트 CLIP(YOLO 사용 시)"
                 )
             else:
                 self.storage_label.setText(
