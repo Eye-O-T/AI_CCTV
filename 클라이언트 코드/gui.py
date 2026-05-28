@@ -30,6 +30,7 @@ from crop_manager import CropManager
 from person_state_manager import PersonStateManager
 from vlm_worker import VLMWorker
 from recording_manager import RecordingManager
+from clip_manager import ClipManager
 
 
 class VideoWorker(QThread):
@@ -42,7 +43,8 @@ class VideoWorker(QThread):
         source=0,
         use_vlm=False, # vlm사용여부
         ai_cctv_path="", # 녹화 폴더
-        original_segment_seconds=10 # 녹화 간격
+        original_segment_seconds=10, # 녹화 간격
+        clip_max_seconds=10 # 클립 최대 길이
     ):
         super().__init__()
         self.source = source    
@@ -57,7 +59,9 @@ class VideoWorker(QThread):
         self.state_manager = PersonStateManager(disappear_timeout=3.0)
         self.ai_cctv_path = ai_cctv_path
         self.original_segment_seconds = original_segment_seconds
+        self.clip_max_seconds = clip_max_seconds
         self.recording_manager = None
+        self.clip_manager = None
 
 
         # vlm켜져있을때만 vlmworker만듦
@@ -83,6 +87,12 @@ class VideoWorker(QThread):
                 fps=fps,
                 segment_seconds=self.original_segment_seconds
             )
+            self.clip_manager = ClipManager(
+                base_dir=self.ai_cctv_path,
+                fps=fps,
+                max_clip_seconds=self.clip_max_seconds,
+                disappear_timeout=3.0
+            )
 
         # vlm 켜져있을때만 vlmworker실행
         if self.use_vlm and self.vlm_worker is not None:
@@ -105,6 +115,7 @@ class VideoWorker(QThread):
 
             # 프레임에서 yolo분석, 객체 추적
             persons = self.tracker.track(frame)
+            clip_frame = frame.copy()
             """
             이렇게 반환되는데 인물 여러멍이면 리스트로 반환
             {
@@ -134,6 +145,8 @@ class VideoWorker(QThread):
                     is_full_body=is_full_body
                 )
 
+                crop_path = None
+
                 # vlm켜져있고, 사람 전신 보이고, 해당 인물 crop이미지가 저장되어있지 않다면 crop저장
                 if (
                     self.use_vlm
@@ -159,6 +172,14 @@ class VideoWorker(QThread):
                             "person_id": person_id,
                             "time": datetime.now().strftime("%H:%M:%S")
                         })
+
+                if self.clip_manager is not None:
+                    self.clip_manager.update_person(
+                        person_id=person_id,
+                        frame=clip_frame,
+                        bbox=bbox,
+                        crop_path=crop_path
+                    )
 
                 # 화면에 전신여부 체크용
                 status = self.full_body_checker.get_status_text(
@@ -191,6 +212,9 @@ class VideoWorker(QThread):
             # 사라진 사람 메모리에서 제거 후 업데이트
             removed_ids = self.state_manager.remove_disappeared_persons()
             for removed_id in removed_ids:
+                if self.clip_manager is not None:
+                    self.clip_manager.finish_person(removed_id)
+
                 self.event_ready.emit({
                     "type": "disappear",
                     "person_id": removed_id,
@@ -216,6 +240,10 @@ class VideoWorker(QThread):
 
         if self.recording_manager is not None:
             self.recording_manager.stop_recording()
+
+        if self.clip_manager is not None:
+            self.clip_manager.finish_all()
+
         self.stream.release()
 
     def stop(self):
@@ -241,6 +269,7 @@ class CCTVMainWindow(QMainWindow):
         self.storage_root_path = ""
         self.ai_cctv_path = ""
         self.original_segment_seconds = 10
+        self.clip_max_seconds = 10
 
         self.init_ui()
 
@@ -406,7 +435,8 @@ class CCTVMainWindow(QMainWindow):
             source=source,
             use_vlm=self.use_vlm,
             ai_cctv_path=self.ai_cctv_path,
-            original_segment_seconds=self.original_segment_seconds
+            original_segment_seconds=self.original_segment_seconds,
+            clip_max_seconds=self.clip_max_seconds
         )
         self.worker.frame_ready.connect(self.update_frame)
         self.worker.metrics_ready.connect(self.update_metrics)
@@ -436,7 +466,8 @@ class CCTVMainWindow(QMainWindow):
             use_vlm=self.use_vlm,
             storage_root_path=self.storage_root_path,
             ai_cctv_path=self.ai_cctv_path,
-            original_segment_seconds=self.original_segment_seconds
+            original_segment_seconds=self.original_segment_seconds,
+            clip_max_seconds=self.clip_max_seconds
         )
 
         if dialog.exec_():
@@ -446,6 +477,7 @@ class CCTVMainWindow(QMainWindow):
             self.storage_root_path = dialog.storage_root_path
             self.ai_cctv_path = dialog.ai_cctv_path
             self.original_segment_seconds = dialog.original_segment_seconds
+            self.clip_max_seconds = dialog.clip_max_seconds
 
             self.cam_status.setText(
                 f"● CAM-01 · 입력 설정 완료: {self.video_source}"
