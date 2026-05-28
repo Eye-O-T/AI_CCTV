@@ -1,16 +1,16 @@
 # person_tracker.py
 
-from ultralytics import YOLO
-
 
 class PersonTracker:
     def __init__(
         self,
         model_path="yolo26s.pt",
         target_class="person",
-        conf_threshold=0.5,
+        conf_threshold=0.7,
         tracker_config="bytetrack.yaml",
     ):
+        from ultralytics import YOLO
+
         self.model = YOLO(model_path)
         self.target_class = target_class
         self.conf_threshold = conf_threshold

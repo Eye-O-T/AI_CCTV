@@ -23,6 +23,7 @@ class SettingsWindow(QDialog):
         self,
         parent=None,
         video_source=0,
+        use_yolo=True,
         use_vlm=True,
         storage_root_path="",
         ai_cctv_path="",
@@ -32,6 +33,7 @@ class SettingsWindow(QDialog):
         super().__init__(parent)
 
         self.selected_source = video_source
+        self.use_yolo = use_yolo
         self.use_vlm = use_vlm
         self.storage_root_path = storage_root_path
         self.ai_cctv_path = ai_cctv_path
@@ -101,7 +103,7 @@ class SettingsWindow(QDialog):
         title.setStyleSheet("font-size: 24px; font-weight: bold;")
         layout.addWidget(title)
 
-        desc = QLabel("카메라 입력 방식과 VLM 가동 여부를 설정합니다.")
+        desc = QLabel("카메라 입력 방식과 AI 분석 가동 여부를 설정합니다.")
         desc.setStyleSheet("font-size: 15px; color: #94a3b8;")
         layout.addWidget(desc)
 
@@ -184,15 +186,24 @@ class SettingsWindow(QDialog):
         vlm_label.setStyleSheet("font-size: 17px; font-weight: bold; margin-top: 10px;")
         input_layout.addWidget(vlm_label)
 
+        self.yolo_checkbox = QCheckBox("YOLO 사람 탐지/추적 사용")
+        self.yolo_checkbox.setChecked(self.use_yolo)
+        self.yolo_checkbox.setStyleSheet(
+            "QCheckBox { font-size: 15px; color: #f8fafc; spacing: 8px; }"
+        )
+        input_layout.addWidget(self.yolo_checkbox)
+
         self.vlm_checkbox = QCheckBox("VLM 의상 분석 사용")
-        self.vlm_checkbox.setChecked(self.use_vlm)
+        self.vlm_checkbox.setChecked(self.use_yolo and self.use_vlm)
         self.vlm_checkbox.setStyleSheet(
             "QCheckBox { font-size: 15px; color: #f8fafc; spacing: 8px; }"
         )
         input_layout.addWidget(self.vlm_checkbox)
+        self.update_ai_mode()
 
         self.radio_webcam.toggled.connect(self.update_input_mode)
         self.radio_rtsp.toggled.connect(self.update_input_mode)
+        self.yolo_checkbox.toggled.connect(self.update_ai_mode)
 
         layout.addWidget(input_box)
 
@@ -225,6 +236,12 @@ class SettingsWindow(QDialog):
             self.rtsp_input.setEnabled(False)
             self.camera_index_input.setEnabled(True)
 
+    def update_ai_mode(self):
+        yolo_enabled = self.yolo_checkbox.isChecked()
+        self.vlm_checkbox.setEnabled(yolo_enabled)
+        if not yolo_enabled:
+            self.vlm_checkbox.setChecked(False)
+
     def save_basic_settings(self):
         self.result_label.setStyleSheet("font-size: 14px; color: #22c55e;")
 
@@ -254,7 +271,8 @@ class SettingsWindow(QDialog):
             source = rtsp_url
 
         self.selected_source = source
-        self.use_vlm = self.vlm_checkbox.isChecked()
+        self.use_yolo = self.yolo_checkbox.isChecked()
+        self.use_vlm = self.use_yolo and self.vlm_checkbox.isChecked()
 
         self.accept()
 
@@ -416,7 +434,7 @@ class SettingsWindow(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        self.btn_storage_save = QPushButton("적용")
+        self.btn_storage_save = QPushButton("저장")
         self.btn_storage_save.setStyleSheet(
             "background-color: #2563eb; color: white; padding: 10px 24px; "
             "border-radius: 6px; font-weight: bold;"
