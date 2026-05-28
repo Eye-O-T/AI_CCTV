@@ -434,7 +434,7 @@ class SettingsWindow(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        self.btn_storage_save = QPushButton("적용")
+        self.btn_storage_save = QPushButton("저장")
         self.btn_storage_save.setStyleSheet(
             "background-color: #2563eb; color: white; padding: 10px 24px; "
             "border-radius: 6px; font-weight: bold;"

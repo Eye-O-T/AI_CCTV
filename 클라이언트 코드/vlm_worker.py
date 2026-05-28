@@ -2,11 +2,7 @@
 
 import threading
 import queue
-import torch
 import gc
-
-from vlm_person_analyzer_Qwen_test import PersonAnalyzer
-from chat_bot import chat_bot as chatbot
 
 class VLMWorker:
     def __init__(self, state_manager):
@@ -15,15 +11,30 @@ class VLMWorker:
         self.running = False
         self.thread = None
         self.analyzer = None
+        self.ready_event = threading.Event()
+        self.failed_event = threading.Event()
+        self.error_message = None
 
     def start(self):
         if self.thread is not None and self.thread.is_alive():
             print("VLM Worker 이미 실행 중")
             return
 
+        self.ready_event.clear()
+        self.failed_event.clear()
+        self.error_message = None
         self.running = True
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
+
+    def is_ready(self):
+        return self.ready_event.is_set()
+
+    def has_failed(self):
+        return self.failed_event.is_set()
+
+    def wait_until_ready(self, timeout=0.1):
+        return self.ready_event.wait(timeout=timeout)
 
     def add_task(self, person_id, crop_path):
         if not self.running:
@@ -34,10 +45,15 @@ class VLMWorker:
     def _run(self):
         try:
             print("VLM 모델 로딩 중...")
+            from vlm_person_analyzer_Qwen_test import PersonAnalyzer
+
             self.analyzer = PersonAnalyzer()
             print("VLM 모델 로딩 완료")
+            self.ready_event.set()
         except Exception as e:
             print(f"VLM 모델 로딩 실패: {e}")
+            self.error_message = str(e)
+            self.failed_event.set()
             self.running = False
             return
 
@@ -56,6 +72,8 @@ class VLMWorker:
 
                 print(f"ID {person_id} VLM 분석 결과:")
                 print(result)
+                from chat_bot import chat_bot as chatbot
+
                 chatbot.send_msg(result)
                 
             except Exception as e:
@@ -85,5 +103,10 @@ class VLMWorker:
 
         gc.collect()
 
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass

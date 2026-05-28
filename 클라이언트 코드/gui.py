@@ -37,6 +37,7 @@ class VideoWorker(QThread):
     frame_ready = pyqtSignal(object) # 분석이 끝난 프레임을 GUI 화면에 보내기
     metrics_ready = pyqtSignal(dict) # 현재 객체 수, 추적 중인 사람 수 보내기
     event_ready = pyqtSignal(dict) # 오류, 사라짐, VLM 큐 등록 같은 이벤트 보내기
+    loading_ready = pyqtSignal(str) # START 이후 첫 화면이 뜨기 전 로딩 상태 보내기
 
     def __init__( # start누르면 실행
         self,
@@ -93,6 +94,8 @@ class VideoWorker(QThread):
         })
 
     def run(self):
+        self.loading_ready.emit("영상 스트림 연결 중...")
+
         # 스트림 열기
         if not self.stream.open():
             self.event_ready.emit({
@@ -121,6 +124,7 @@ class VideoWorker(QThread):
         # vlm 켜져있을때만 vlmworker실행
         if self.use_yolo:
             try:
+                self.loading_ready.emit("YOLO 모델 로딩 중...")
                 self.tracker = PersonTracker(model_path="yolo26s.pt")
             except Exception as e:
                 self.disable_ai_pipeline(
@@ -128,7 +132,21 @@ class VideoWorker(QThread):
                 )
 
         if self.use_yolo and self.use_vlm and self.vlm_worker is not None:
+            self.loading_ready.emit("VLM 모델 로딩 중...")
             self.vlm_worker.start()
+
+            while self.running and not self.vlm_worker.wait_until_ready(timeout=0.1):
+                if self.vlm_worker.has_failed():
+                    error = self.vlm_worker.error_message or "알 수 없는 오류"
+                    self.disable_ai_pipeline(
+                        f"VLM 초기화 실패: CCTV 모드로 전환합니다. ({error})"
+                    )
+                    break
+
+            if self.running and self.use_yolo and self.use_vlm:
+                self.loading_ready.emit("실시간 화면 준비 중...")
+        else:
+            self.loading_ready.emit("실시간 화면 준비 중...")
 
         
         while self.running:
@@ -485,12 +503,15 @@ class CCTVMainWindow(QMainWindow):
         self.worker.frame_ready.connect(self.update_frame)
         self.worker.metrics_ready.connect(self.update_metrics)
         self.worker.event_ready.connect(self.add_event)
+        self.worker.loading_ready.connect(self.show_loading_screen)
+        self.worker.finished.connect(self.handle_worker_finished)
+        self.show_loading_screen("시스템 시작 중...")
         self.worker.start()
 
-        self.cam_status.setText("● CAM-01 · LIVE")
+        self.cam_status.setText("● CAM-01 · 로딩 중")
         self.cam_status.setStyleSheet(
-            "background-color: #0f172a; border: 1px solid #22c55e; "
-            "border-radius: 5px; padding: 15px; color: #22c55e;"
+            "background-color: #0f172a; border: 1px solid #facc15; "
+            "border-radius: 5px; padding: 15px; color: #facc15;"
         )
 
     def stop_video(self):
@@ -503,6 +524,8 @@ class CCTVMainWindow(QMainWindow):
             "background-color: #0f172a; border: 1px solid #ef4444; "
             "border-radius: 5px; padding: 15px; color: #ef4444;"
         )
+        self.show_idle_screen()
+
     def open_settings(self):
         dialog = SettingsWindow(
             self,
@@ -545,6 +568,18 @@ class CCTVMainWindow(QMainWindow):
                 )
 
     def update_frame(self, frame):
+        if self.cam_status.text() != "● CAM-01 · LIVE":
+            self.cam_status.setText("● CAM-01 · LIVE")
+            self.cam_status.setStyleSheet(
+                "background-color: #0f172a; border: 1px solid #22c55e; "
+                "border-radius: 5px; padding: 15px; color: #22c55e;"
+            )
+
+        self.video_label.setStyleSheet(
+            "background-color: #0f172a; border-radius: 5px; "
+            "font-size: 24px; color: #334155; font-weight: bold;"
+        )
+
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         h, w, ch = rgb_frame.shape
@@ -566,6 +601,39 @@ class CCTVMainWindow(QMainWindow):
         )
 
         self.video_label.setPixmap(scaled_pixmap)
+
+    def show_loading_screen(self, message):
+        self.video_label.clear()
+        self.video_label.setText(f"{message}\n잠시만 기다려 주세요.")
+        self.video_label.setAlignment(Qt.AlignCenter)
+        self.video_label.setStyleSheet(
+            "background-color: #0f172a; border: 1px solid #334155; "
+            "border-radius: 5px; font-size: 24px; color: #facc15; "
+            "font-weight: bold;"
+        )
+
+    def show_idle_screen(self):
+        self.video_label.clear()
+        self.video_label.setText("LIVE VIDEO SURFACE")
+        self.video_label.setAlignment(Qt.AlignCenter)
+        self.video_label.setStyleSheet(
+            "background-color: #0f172a; border-radius: 5px; "
+            "font-size: 24px; color: #334155; font-weight: bold;"
+        )
+
+    def handle_worker_finished(self):
+        if self.worker is None:
+            return
+
+        if not self.worker.running:
+            return
+
+        self.worker = None
+        self.cam_status.setText("● CAM-01 · 오류")
+        self.cam_status.setStyleSheet(
+            "background-color: #0f172a; border: 1px solid #ef4444; "
+            "border-radius: 5px; padding: 15px; color: #ef4444;"
+        )
 
     def update_metrics(self, data):
         self.metric_current["value"].setText(str(data.get("current_objects", 0)))
