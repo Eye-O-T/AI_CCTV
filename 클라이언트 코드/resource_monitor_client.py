@@ -1,16 +1,13 @@
-# 클라이언트 자원 모니터링 FastAPI 앱입니다.
-# 요청을 받으면 서버의 모니터링 API로 top 요약을 요청합니다.
+# 클라이언트 자원 모니터링 요청 파일입니다.
+# 서버의 모니터링 API로 HTTP 요청을 보내고 결과를 받습니다.
 # 서버 주소는 환경 변수 RESOURCE_MONITOR_SERVER_URL로 바꿀 수 있습니다.
 
 import os
 
 import requests
-from fastapi import FastAPI, HTTPException
 
 
 DEFAULT_SERVER_URL = "http://127.0.0.1:8001"
-
-app = FastAPI(title="AI CCTV Resource Monitor Client")
 
 
 class ResourceMonitorClient:
@@ -70,7 +67,6 @@ def build_monitor_client():
     return ResourceMonitorClient(server_url=server_url)
 
 
-@app.get("/monitor/top")
 def request_top_summary():
     """서버 자원 모니터링 결과를 요청해 그대로 반환합니다.
 
@@ -80,24 +76,33 @@ def request_top_summary():
         서버가 반환한 top 요약 딕셔너리를 반환합니다.
     """
 
-    try:
-        return build_monitor_client().request_top_summary()
-    except RuntimeError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+    return build_monitor_client().request_top_summary()
+
+
+def print_top_summary(summary):
+    """top 요약 응답을 콘솔에 출력합니다.
+
+    인자:
+        summary: 서버가 반환한 top 요약 딕셔너리입니다.
+    반환값:
+        없음.
+    """
+
+    print(f"수집 시각: {summary.get('collected_at', '-')}")
+    for line in summary.get("lines", []):
+        print(line)
 
 
 def main():
-    """개발용 uvicorn 클라이언트 API 서버를 실행합니다.
+    """서버 자원 모니터링 결과를 요청하고 콘솔에 출력합니다.
 
     인자:
         없음.
     반환값:
-        정상적으로는 반환하지 않습니다.
+        없음.
     """
 
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    print_top_summary(request_top_summary())
 
 
 if __name__ == "__main__":
