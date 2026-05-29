@@ -2,6 +2,7 @@
 # 서버의 모니터링 API로 HTTP 요청을 보내고 결과를 받습니다.
 # 서버 주소는 환경 변수 RESOURCE_MONITOR_SERVER_URL로 바꿀 수 있습니다.
 
+import json
 import os
 
 import requests
@@ -33,8 +34,8 @@ class ResourceMonitorClient:
         self.server_url = server_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
 
-    def request_top_summary(self):
-        """서버에 top 요약 정보를 요청합니다.
+    def request_resource_usage(self):
+        """서버에 자원 사용률 정보를 요청합니다.
 
         인자:
             없음.
@@ -67,30 +68,28 @@ def build_monitor_client():
     return ResourceMonitorClient(server_url=server_url)
 
 
-def request_top_summary():
+def request_resource_usage():
     """서버 자원 모니터링 결과를 요청해 그대로 반환합니다.
 
     인자:
         없음.
     반환값:
-        서버가 반환한 top 요약 딕셔너리를 반환합니다.
+        서버가 반환한 자원 사용률 딕셔너리를 반환합니다.
     """
 
-    return build_monitor_client().request_top_summary()
+    return build_monitor_client().request_resource_usage()
 
 
-def print_top_summary(summary):
-    """top 요약 응답을 콘솔에 출력합니다.
+def print_resource_usage(resource_usage):
+    """자원 사용률 응답을 콘솔에 JSON 형태로 출력합니다.
 
     인자:
-        summary: 서버가 반환한 top 요약 딕셔너리입니다.
+        resource_usage: 서버가 반환한 자원 사용률 딕셔너리입니다.
     반환값:
         없음.
     """
 
-    print(f"수집 시각: {summary.get('collected_at', '-')}")
-    for line in summary.get("lines", []):
-        print(line)
+    print(json.dumps(resource_usage, ensure_ascii=False, indent=2))
 
 
 def main():
@@ -102,7 +101,7 @@ def main():
         없음.
     """
 
-    print_top_summary(request_top_summary())
+    print_resource_usage(request_resource_usage())
 
 
 if __name__ == "__main__":
