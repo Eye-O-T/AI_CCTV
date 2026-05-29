@@ -10,6 +10,8 @@ matplotlib
 scipy
 pyyaml
 requests
+fastapi
+uvicorn
 psutil
 insightface
 onnxruntime
