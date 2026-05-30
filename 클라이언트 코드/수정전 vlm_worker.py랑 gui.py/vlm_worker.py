@@ -3,12 +3,10 @@
 import threading
 import queue
 import gc
-from datetime import datetime
 
 class VLMWorker:
-    def __init__(self, state_manager, result_callback=None):
+    def __init__(self, state_manager):
         self.state_manager = state_manager
-        self.result_callback = result_callback
         self.task_queue = queue.Queue()
         self.running = False
         self.thread = None
@@ -74,15 +72,9 @@ class VLMWorker:
 
                 print(f"ID {person_id} VLM 분석 결과:")
                 print(result)
-                
-                #  GUI로 결과 전송 (기존 챗봇 코드 대체)
-                if self.result_callback:
-                    self.result_callback({
-                        "type": "vlm_done",
-                        "person_id": person_id,
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                        "message": result
-                    })
+                from chat_bot import chat_bot as chatbot
+
+                chatbot.send_msg(result)
                 
             except Exception as e:
                 print(f"ID {person_id} VLM 분석 실패: {e}")

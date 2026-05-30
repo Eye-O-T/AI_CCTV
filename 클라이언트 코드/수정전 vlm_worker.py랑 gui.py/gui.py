@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QDialog,
 )
-from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer # QTimer 추가
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QImage, QPixmap
 from settings_window import SettingsWindow
 from video_stream import VideoStream
@@ -32,24 +32,21 @@ from vlm_worker import VLMWorker
 from recording_manager import RecordingManager
 from clip_manager import ClipManager
 
-# 💡 서버 자원 클라이언트 모듈 임포트
-from resource_monitor_client import request_resource_usage
-
 
 class VideoWorker(QThread):
-    frame_ready = pyqtSignal(object) 
-    metrics_ready = pyqtSignal(dict) 
-    event_ready = pyqtSignal(dict) 
-    loading_ready = pyqtSignal(str) 
+    frame_ready = pyqtSignal(object) # 분석이 끝난 프레임을 GUI 화면에 보내기
+    metrics_ready = pyqtSignal(dict) # 현재 객체 수, 추적 중인 사람 수 보내기
+    event_ready = pyqtSignal(dict) # 오류, 사라짐, VLM 큐 등록 같은 이벤트 보내기
+    loading_ready = pyqtSignal(str) # START 이후 첫 화면이 뜨기 전 로딩 상태 보내기
 
-    def __init__( 
+    def __init__( # start누르면 실행
         self,
         source=0,
-        use_yolo=True, 
-        use_vlm=False, 
-        ai_cctv_path="", 
-        original_segment_seconds=10, 
-        clip_max_seconds=10 
+        use_yolo=True, # yolo 사용 여부
+        use_vlm=False, # vlm사용여부
+        ai_cctv_path="", # 녹화 폴더
+        original_segment_seconds=10, # 녹화 간격
+        clip_max_seconds=10 # 클립 최대 길이
     ):
         super().__init__()
         self.source = source    
@@ -57,6 +54,7 @@ class VideoWorker(QThread):
         self.use_yolo = use_yolo
         self.use_vlm = use_yolo and use_vlm
 
+        # 클래스 연결
         self.stream = VideoStream(source=self.source)
         self.tracker = None
         self.full_body_checker = FullBodyChecker()
@@ -68,10 +66,11 @@ class VideoWorker(QThread):
         self.recording_manager = None
         self.clip_manager = None
 
+
+        # vlm켜져있을때만 vlmworker만듦
         self.vlm_worker = None
         if self.use_yolo and self.use_vlm:
-            # 💡 VLMWorker에 event_ready 시그널을 콜백으로 넘겨줌
-            self.vlm_worker = VLMWorker(self.state_manager, result_callback=self.event_ready.emit)
+            self.vlm_worker = VLMWorker(self.state_manager)
 
     def disable_ai_pipeline(self, message):
         self.use_yolo = False
@@ -97,6 +96,7 @@ class VideoWorker(QThread):
     def run(self):
         self.loading_ready.emit("영상 스트림 연결 중...")
 
+        # 스트림 열기
         if not self.stream.open():
             self.event_ready.emit({
                 "type": "error",
@@ -104,8 +104,9 @@ class VideoWorker(QThread):
             })
             return
 
+        # 저장경로 있으면 RecordingManager만들어 녹화하고 없으면 녹화 안함.
         if self.ai_cctv_path:
-            fps = self.stream.get_fps() 
+            fps = self.stream.get_fps() # 현재 영상 스트림에서 fps가져오기. 이게 있어야 녹화 정상적으로 가능
 
             self.recording_manager = RecordingManager(
                 base_dir=self.ai_cctv_path,
@@ -120,6 +121,7 @@ class VideoWorker(QThread):
                     disappear_timeout=3.0
                 )
 
+        # vlm 켜져있을때만 vlmworker실행
         if self.use_yolo:
             try:
                 self.loading_ready.emit("YOLO 모델 로딩 중...")
@@ -146,6 +148,7 @@ class VideoWorker(QThread):
         else:
             self.loading_ready.emit("실시간 화면 준비 중...")
 
+        
         while self.running:
             ret, frame = self.stream.read()
 
@@ -155,7 +158,8 @@ class VideoWorker(QThread):
                     "message": "프레임 수신 실패"
                 })
                 continue
-            
+            # RecordingManager가 만들어져있으면 현재 프레임 저장
+            # YOLO 바운딩박스 그려지기 전의 프레임 저장
             if self.recording_manager is not None:
                 self.recording_manager.write_frame(frame)
 
@@ -163,25 +167,36 @@ class VideoWorker(QThread):
             clip_frame = None
             if self.use_yolo and self.tracker is not None:
                 try:
+                    # 프레임에서 yolo분석, 객체 추적
                     persons = self.tracker.track(frame)
                     clip_frame = frame.copy()
                 except Exception as e:
                     self.disable_ai_pipeline(
                         f"YOLO 추론 실패: CCTV 모드로 전환합니다. ({e})"
                     )
+            """
+            이렇게 반환되는데 인물 여러멍이면 리스트로 반환
+            {
+                "person_id": 1,
+                "bbox": [x1, y1, x2, y2],
+                "conf": 0.87
+            },
+            """
 
-            for person in persons: 
+            for person in persons: # 사람마다 처리.
                 person_id = person["person_id"]
                 bbox = person["bbox"]
                 conf = person["conf"]
 
-                x1, y1, x2, y2 = map(int, bbox) 
+                x1, y1, x2, y2 = map(int, bbox) # opencv로 박스 그리려면 정수로 바꿔야해서 int형으로 변환
 
+                # 전신 검사 여부 체크
                 is_full_body = self.full_body_checker.is_full_body_visible(
                     bbox,
                     frame.shape
                 )
 
+                # person_id 상태 업데이트
                 self.state_manager.update_person(
                     person_id=person_id,
                     bbox=bbox,
@@ -190,6 +205,7 @@ class VideoWorker(QThread):
 
                 crop_path = None
 
+                # vlm켜져있고, 사람 전신 보이고, 해당 인물 crop이미지가 저장되어있지 않다면 crop저장
                 if (
                     self.use_vlm
                     and is_full_body
@@ -201,11 +217,14 @@ class VideoWorker(QThread):
                         person_id=person_id
                     )
 
+                    # 인물 crop상태 업데이트
                     if crop_path is not None:
                         self.state_manager.mark_crop_saved(person_id, crop_path)
+                        # vlmworker작업큐에 crop이미지 추가(비동기 스레드 처리)
                         if self.vlm_worker is not None:
                             self.vlm_worker.add_task(person_id, crop_path)
 
+                        # gui 이벤트 표시용
                         self.event_ready.emit({
                             "type": "vlm_queue",
                             "person_id": person_id,
@@ -220,14 +239,18 @@ class VideoWorker(QThread):
                         crop_path=crop_path
                     )
 
+                # 화면에 전신여부 체크용
                 status = self.full_body_checker.get_status_text(
                     bbox,
                     frame.shape
                 )
+                # 바운딩박스 색깔 - 전신 : 초록, 전신x : 빨강
                 color = (0, 255, 0) if is_full_body else (0, 0, 255)
 
+                # 바운딩박스 그리기
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
+                # 사람 상태 가져와서 vlm 완료 여부 표시
                 state = self.state_manager.get_state(person_id)
                 vlm_text = ""
                 if state is not None and state.get("vlm_done", False):
@@ -244,7 +267,7 @@ class VideoWorker(QThread):
                     color,
                     2
                 )
-            
+            # 사라진 사람 메모리에서 제거 후 업데이트
             removed_ids = []
             if self.use_yolo:
                 removed_ids = self.state_manager.remove_disappeared_persons()
@@ -258,17 +281,20 @@ class VideoWorker(QThread):
                     "time": datetime.now().strftime("%H:%M:%S")
                 })
 
+            # 현재 PersonStateManager(상태관리자)에 남아있는 사람 수
             tracked_total = 0
             if hasattr(self.state_manager, "person_states"):
                 tracked_total = len(self.state_manager.person_states)
-            
+            # GUI에 숫자 전송
             self.metrics_ready.emit({
                 "current_objects": len(persons),
                 "tracked_total": tracked_total
             })
-            
+            # 바운딩박스와 라벨 그려진 프레임 GUI로 전송
+            # CCTVMainWindow.update_frame()에서 이 프레임 받아서 송출
             self.frame_ready.emit(frame)
 
+        # 반복문 종료시 실행(stop누르면 vlmworker종료, 녹화 종료, 스트림 해제)
         if self.use_yolo and self.use_vlm and self.vlm_worker is not None:
             self.vlm_worker.stop()
 
@@ -281,8 +307,8 @@ class VideoWorker(QThread):
         self.stream.release()
 
     def stop(self):
-        self.running = False 
-        self.wait() 
+        self.running = False # while 종료 요청
+        self.wait() #  VideoWorker 스레드가 완전히 끝날 때까지 기다림
 
 
 class CCTVMainWindow(QMainWindow):
@@ -307,11 +333,6 @@ class CCTVMainWindow(QMainWindow):
         self.clip_max_seconds = 10
 
         self.init_ui()
-
-        # 💡 자원 모니터링 타이머 설정 (2초 간격)
-        self.resource_timer = QTimer(self)
-        self.resource_timer.timeout.connect(self.update_resource_status)
-        self.resource_timer.start(2000)
 
     def init_ui(self):
         central_widget = QWidget()
@@ -374,15 +395,8 @@ class CCTVMainWindow(QMainWindow):
             "border-radius: 5px; padding: 15px; color: #facc15;"
         )
         left_layout.addWidget(self.cam_status)
-        
-        # 💡 좌측 패널에 서버 자원 상태 라벨 추가
-        self.server_status_label = QLabel("서버 자원: 연결 대기 중")
-        self.server_status_label.setStyleSheet(
-            "color: #94a3b8; font-size: 14px; margin-top: 15px; font-weight: bold;"
-        )
-        left_layout.addWidget(self.server_status_label)
-
         left_layout.addStretch()
+
         body_layout.addWidget(left_panel)
 
         center_panel = QFrame()
@@ -471,18 +485,6 @@ class CCTVMainWindow(QMainWindow):
             "value": value_label,
             "label": text_label
         }
-
-    # 💡 타이머가 호출하는 자원 데이터 갱신 함수
-    def update_resource_status(self):
-        try:
-            data = request_resource_usage()
-            cpu_usage = data["cpu"]["total_percent"]
-            mem_usage = data["memory"]["total_percent"]
-            self.server_status_label.setText(f"서버 자원: CPU {cpu_usage:.1f}% | RAM {mem_usage:.1f}%")
-            self.server_status_label.setStyleSheet("color: #22c55e; font-size: 14px; margin-top: 15px; font-weight: bold;")
-        except Exception:
-            self.server_status_label.setText("서버 자원: 서버 오프라인")
-            self.server_status_label.setStyleSheet("color: #ef4444; font-size: 14px; margin-top: 15px; font-weight: bold;")
 
     def start_video(self):
         if self.worker is not None:
@@ -655,11 +657,6 @@ class CCTVMainWindow(QMainWindow):
         elif event_type == "error":
             desc = event.get("message", "오류 발생")
             color = "#ef4444"
-        # 💡 VLM 분석 완료 이벤트 처리 로직 추가
-        elif event_type == "vlm_done":
-            message = event.get("message", "")
-            desc = f"ID {person_id} 의상 분석\n{message}"
-            color = "#a855f7" # 눈에 띄게 보라색으로 설정
         else:
             desc = f"ID {person_id} {event_type}"
             color = "#38bdf8"
@@ -670,11 +667,10 @@ class CCTVMainWindow(QMainWindow):
         layout = QVBoxLayout(event_box)
 
         time_label = QLabel(time_text)
-        time_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        time_label.setStyleSheet(f"color: {color};")
 
         desc_label = QLabel(desc)
-        desc_label.setStyleSheet("font-size: 14px; font-weight: bold; padding-top: 5px;")
-        desc_label.setWordWrap(True) # 💡 VLM 텍스트가 기니까 자동 줄바꿈 적용
+        desc_label.setStyleSheet("font-size: 15px; font-weight: bold;")
 
         layout.addWidget(time_label)
         layout.addWidget(desc_label)
