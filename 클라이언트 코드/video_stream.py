@@ -99,6 +99,11 @@ class VideoStream:
             height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             return width, height
 
+    def pop_connection_events(self):
+        if self.is_rtsp and self.receiver is not None:
+            return self.receiver.pop_connection_events()
+        return []
+
     def release(self):
         if self.is_rtsp:
             if self.receiver is not None:
@@ -108,4 +113,4 @@ class VideoStream:
             if self.cap is not None:
                 self.cap.release()
                 self.cap = None
-
+

@@ -4,6 +4,7 @@ import time  # 시간 계측 및 지연(sleep) 관리
 import sys  # 시스템 출력 콘솔 제어 (대기 메시지 출력용)
 import os  # 운영체제 환경변수 설정용 (FFmpeg 옵션 주입)
 import socket  # 네트워크 소켓 통신: 서버의 포트가 살아있는지 사전 노크(TCP Handshake)용.
+from datetime import datetime
 from urllib.parse import urlparse  # URL 파싱: RTSP 주소에서 IP와 포트 번호를 분리 추출하기 위함
 
 # 핵심 설정-OpenCV의 비디오 디코더 백엔드(FFmpeg)에 TCP 전송 방식 강제 및 2초 타임아웃 주입
@@ -62,10 +63,53 @@ class RTSPReceiver:
         self.watchdog_thread = None  # 영상 프리징을 실시간 감시하는 스레드 객체
         self.last_frame_time = time.time()  # 마지막으로 프레임이 정상 유입된 시간 (타임스탬프)
         self.cap = None  # OpenCV의 cv2.VideoCapture 인스턴스 저장 변수
+        self.had_successful_frame = False
+        self.active_failure_start_time = None
+        self.connection_events = []
         
         # 스레드 동기화 락(Lock) 화면갱신 스레드랑 비디오캡처 스레드가 같은 전역메모리 써서 락필요함.
         # - 여러 스레드가 동시에 self.frame이나 self.cap에 접근할 때 데이터 충돌(Race Condition)이 나는 것을 막아주는 안전 잠금 장치
         self.lock = threading.Lock()
+        self.event_lock = threading.Lock()
+
+    def _mark_failure(self, reason):
+        if not self.had_successful_frame:
+            return
+
+        with self.event_lock:
+            if self.active_failure_start_time is not None:
+                return
+
+            self.active_failure_start_time = datetime.fromtimestamp(
+                self.last_frame_time
+            )
+            self.connection_events.append({
+                "type": "failure",
+                "time": datetime.now(),
+                "failure_start_time": self.active_failure_start_time,
+                "reason": reason,
+            })
+
+    def _mark_recovery(self):
+        with self.event_lock:
+            if self.active_failure_start_time is None:
+                return
+
+            failure_start_time = self.active_failure_start_time
+            recovered_time = datetime.now()
+            self.active_failure_start_time = None
+            self.connection_events.append({
+                "type": "recovery",
+                "time": recovered_time,
+                "failure_start_time": failure_start_time,
+                "recovered_time": recovered_time,
+            })
+
+    def pop_connection_events(self):
+        with self.event_lock:
+            events = list(self.connection_events)
+            self.connection_events.clear()
+            return events
 
     def start(self):
         """
@@ -94,6 +138,7 @@ class RTSPReceiver:
                 # 5.0초 동안 한 장의 사진도 들어오지 않았다면 영상이 동결(Freeze)된 것으로 간주
                 if time.time() - self.last_frame_time > 5.0:
                     print("[!] Watchdog: Stream freeze detected. Forcing resource release...")
+                    self._mark_failure("watchdog_freeze")
                     with self.lock:
                         if self.cap is not None:
                             self.cap.release()  # 락이 걸린 OpenCV 소켓을 물리적으로 강제 파괴하여 대기 상태를 강제 중단
@@ -110,6 +155,7 @@ class RTSPReceiver:
             # 1. 1차 포트 노크 단계: 30초 프리징 방지를 위한 TCP 노크
             if not check_server_port_open(self.rtsp_url, timeout=1.5):
                 print(f"[!] RTSP Server port is unreachable. Retrying in {self.reconnect_interval} seconds...")
+                self._mark_failure("port_unreachable")
                 was_unreachable = True  # 단선 상태 기록
                 time.sleep(self.reconnect_interval)  # 3초 대기 후 처음부터 다시 포트 체크
                 continue
@@ -157,12 +203,15 @@ class RTSPReceiver:
                     consecutive_failures += 1
                     if consecutive_failures >= 80:
                         print("[!] Frame read failed consecutively 80 times. Connection might be lost. Reconnecting...")
+                        self._mark_failure("frame_read_failed")
                         break
                     time.sleep(0.01)  # CPU 독점을 예방하기 위해 아주 미세한 쉬는 시간 부여
                     continue
                 
                 consecutive_failures = 0  # 프레임 읽기 성공 시 실패 카운트 즉시 리셋
                 self.last_frame_time = time.time()  # 감시용 타임스탬프 갱신
+                self.had_successful_frame = True
+                self._mark_recovery()
                 with self.lock:
                     self.frame = frame.copy()  # 다른 스레드가 안전하게 가져갈 수 있도록 원본 데이터를 복제해서 보관. 이렇게 안하면 화면 깨질 수 있다함.
             
