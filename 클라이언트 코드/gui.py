@@ -6,6 +6,7 @@ os.environ["QT_PLUGIN_PATH"] = r"C:\qt_plugins"
 
 import sys
 import cv2
+import time
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
@@ -150,6 +151,12 @@ class VideoWorker(QThread):
             ret, frame = self.stream.read()
 
             if not ret:
+                if getattr(self.stream, "is_rtsp", False):
+                    # RTSP 모드에서는 일시적인 지연이나 재연결 중일 때 프레임이 없을 수 있으므로
+                    # 바로 에러를 뿜지 않고 10ms 대기 후 루프를 계속 돕니다.
+                    time.sleep(0.01)
+                    continue
+                
                 self.event_ready.emit({
                     "type": "error",
                     "message": "프레임 수신 실패"
