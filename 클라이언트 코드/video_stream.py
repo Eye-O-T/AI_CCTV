@@ -53,11 +53,18 @@ class VideoStream:
                 if not self.receiver.is_connected or (time.time() - start_wait > 0.1):
                     break
             
+            current_frame_time = getattr(self.receiver, "last_frame_time", 0)
+            if (
+                self.last_read_frame_time is not None
+                and current_frame_time <= self.last_read_frame_time
+            ):
+                return False, None
+
             frame = self.receiver.get_frame()
             if frame is None:
                 return False, None
             
-            self.last_read_frame_time = getattr(self.receiver, "last_frame_time", 0)
+            self.last_read_frame_time = current_frame_time
             return True, frame
         else:
             if self.cap is None:

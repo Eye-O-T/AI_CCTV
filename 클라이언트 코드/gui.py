@@ -347,6 +347,9 @@ class VideoWorker(QThread):
                     event.get("failure_start_time")
                 )
                 if result.get("started"):
+                    if self.recording_manager is not None:
+                        self.recording_manager.stop_recording()
+
                     self.event_ready.emit({
                         "type": "network_failure",
                         "time": datetime.now().strftime("%H:%M:%S"),
