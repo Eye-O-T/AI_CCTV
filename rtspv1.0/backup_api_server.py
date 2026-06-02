@@ -9,7 +9,8 @@ from fastapi.responses import FileResponse, JSONResponse
 app = FastAPI(title="AI CCTV RPi Backup API Server")
 
 # 백업 디렉터리 경로 설정 (사용자 RPi 환경에 맞춰 홈 폴더의 backups를 가리키도록 설정)
-BACKUP_DIR = os.path.join(os.path.expanduser("~"), "backups")
+# BACKUP_DIR = os.path.join(os.path.expanduser("~"), "backups")
+BACKUP_DIR = os.path.join(os.path.dirname(__file__), "backups")
 
 
 def remove_temp_file(path: str):
