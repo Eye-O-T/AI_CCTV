@@ -14,6 +14,8 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
+    QPushButton,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -194,8 +196,10 @@ class ResourceMonitorWindow(QDialog):
         self.last_gpu_update = 0
         self.gpu_cache = None
         self.cpu_utility_counter = WindowsCpuUtilityCounter()
+        self.monitor_view = "pc"
 
         self.setWindowTitle("리소스 모니터링")
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setMinimumSize(960, 720)
         self.setStyleSheet(
             "background-color: #0f172a; color: #f8fafc; font-family: Arial;"
@@ -222,9 +226,13 @@ class ResourceMonitorWindow(QDialog):
         self.summary_label.setStyleSheet("color: #94a3b8; font-size: 13px;")
         layout.addWidget(self.summary_label)
 
-        grid = QGridLayout()
+        self.monitor_stack = QStackedWidget()
+        layout.addWidget(self.monitor_stack, stretch=1)
+
+        pc_page = QWidget()
+        grid = QGridLayout(pc_page)
         grid.setSpacing(14)
-        layout.addLayout(grid)
+        grid.setContentsMargins(0, 0, 0, 0)
 
         self.cpu_card = ResourceCard("CPU", "#22c55e")
         self.ram_card = ResourceCard("RAM", "#38bdf8")
@@ -232,7 +240,6 @@ class ResourceMonitorWindow(QDialog):
         self.vram_card = ResourceCard("VRAM", "#a78bfa")
         self.disk_card = ResourceCard("저장 공간", "#fb7185")
         self.network_card = ResourceCard("네트워크", "#2dd4bf")
-        self.temp_card = ResourceCard("온도", "#f97316")
 
         grid.addWidget(self.cpu_card, 0, 0)
         grid.addWidget(self.ram_card, 0, 1)
@@ -240,7 +247,52 @@ class ResourceMonitorWindow(QDialog):
         grid.addWidget(self.vram_card, 1, 1)
         grid.addWidget(self.disk_card, 2, 0)
         grid.addWidget(self.network_card, 2, 1)
-        grid.addWidget(self.temp_card, 3, 0, 1, 2)
+
+        smart_page = QFrame()
+        smart_page.setStyleSheet("background-color: #1e293b; border-radius: 8px;")
+        smart_layout = QVBoxLayout(smart_page)
+        smart_layout.setContentsMargins(24, 24, 24, 24)
+        smart_layout.setSpacing(10)
+        smart_layout.addStretch()
+
+        smart_title = QLabel("스마트CCTV 모니터링 정보")
+        smart_title.setAlignment(Qt.AlignCenter)
+        smart_title.setStyleSheet("font-size: 24px; font-weight: bold;")
+        smart_layout.addWidget(smart_title)
+
+        smart_status = QLabel("연결 대기")
+        smart_status.setAlignment(Qt.AlignCenter)
+        smart_status.setStyleSheet("color: #94a3b8; font-size: 16px;")
+        smart_layout.addWidget(smart_status)
+        smart_layout.addStretch()
+
+        self.monitor_stack.addWidget(pc_page)
+        self.monitor_stack.addWidget(smart_page)
+
+        self.switch_monitor_button = QPushButton("스마트CCTV 모니터링 정보")
+        self.switch_monitor_button.setMinimumHeight(78)
+        self.switch_monitor_button.setStyleSheet(
+            "QPushButton { background-color: #0e7490; color: white; "
+            "border: none; border-radius: 8px; font-size: 22px; "
+            "font-weight: bold; }"
+            "QPushButton:hover { background-color: #0891b2; }"
+            "QPushButton:pressed { background-color: #155e75; }"
+        )
+        self.switch_monitor_button.clicked.connect(self.switch_monitor_view)
+        layout.addWidget(self.switch_monitor_button)
+
+    def switch_monitor_view(self):
+        if self.monitor_view == "pc":
+            self.monitor_view = "smart"
+            self.monitor_stack.setCurrentIndex(1)
+            self.switch_monitor_button.setText("사용자PC 모니터링 정보")
+            self.summary_label.setText("스마트CCTV 리소스 정보 연결 대기")
+            return
+
+        self.monitor_view = "pc"
+        self.monitor_stack.setCurrentIndex(0)
+        self.switch_monitor_button.setText("스마트CCTV 모니터링 정보")
+        self.refresh()
 
     def _prime_cpu_counters(self):
         psutil.cpu_percent(interval=None)
@@ -252,12 +304,15 @@ class ResourceMonitorWindow(QDialog):
                 pass
 
     def refresh(self):
+        if self.monitor_view == "smart":
+            self.summary_label.setText("스마트CCTV 리소스 정보 연결 대기")
+            return
+
         cpu = self._collect_cpu()
         memory = self._collect_memory()
         disk = self._collect_disk()
         network = self._collect_network()
         gpu = self._collect_gpu()
-        temp = self._collect_temperature(gpu)
 
         self.cpu_card.update_data(
             cpu["total_percent"],
@@ -315,15 +370,6 @@ class ResourceMonitorWindow(QDialog):
                 gpu["vram_percent"],
                 f"{vram_free_gb:.1f}GB 여유",
                 vram_detail,
-            )
-
-        if temp is None:
-            self.temp_card.update_data(0, "지원 안 됨", "온도 센서 정보를 찾지 못했습니다.")
-        else:
-            self.temp_card.update_data(
-                temp["percent_hint"],
-                f"{temp['max_celsius']:.0f}°C",
-                temp["detail"],
             )
 
         self.summary_label.setText(
