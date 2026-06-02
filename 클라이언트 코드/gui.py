@@ -336,16 +336,20 @@ class VideoWorker(QThread):
         return f"http://{host}:8002/recover"
 
     def handle_rtsp_connection_events(self):
-        if self.recovery_manager is None:
-            return
-
         for event in self.stream.pop_connection_events():
             event_type = event.get("type")
 
             if event_type == "failure":
-                result = self.recovery_manager.record_failure(
-                    event.get("failure_start_time")
-                )
+                if self.recovery_manager is None:
+                    result = {
+                        "started": True,
+                        "failure_start_time": event.get("failure_start_time"),
+                    }
+                else:
+                    result = self.recovery_manager.record_failure(
+                        event.get("failure_start_time")
+                    )
+
                 if result.get("started"):
                     if self.recording_manager is not None:
                         self.recording_manager.stop_recording()
@@ -360,12 +364,19 @@ class VideoWorker(QThread):
                     })
 
             elif event_type == "recovery":
-                thread = threading.Thread(
-                    target=self._run_recovery_request,
-                    args=(event,),
-                    daemon=True,
-                )
-                thread.start()
+                if self.recovery_manager is None:
+                    self.event_ready.emit({
+                        "type": "network_recovered",
+                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "message": "네트워크 연결 복구",
+                    })
+                else:
+                    thread = threading.Thread(
+                        target=self._run_recovery_request,
+                        args=(event,),
+                        daemon=True,
+                    )
+                    thread.start()
 
     def _run_recovery_request(self, event):
         if self.recovery_manager is None:
@@ -381,6 +392,11 @@ class VideoWorker(QThread):
 
         if result.get("success"):
             if result.get("skipped"):
+                self.event_ready.emit({
+                    "type": "network_recovered",
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "message": "네트워크 연결 복구",
+                })
                 return
 
             self.event_ready.emit({
@@ -697,6 +713,13 @@ class CCTVMainWindow(QMainWindow):
 
         self.video_label.setPixmap(scaled_pixmap)
 
+    def set_camera_status(self, text, border_color, text_color):
+        self.cam_status.setText(text)
+        self.cam_status.setStyleSheet(
+            f"background-color: #0f172a; border: 1px solid {border_color}; "
+            f"border-radius: 5px; padding: 15px; color: {text_color};"
+        )
+
     def show_loading_screen(self, message):
         self.video_label.clear()
         self.video_label.setText(f"{message}\n잠시만 기다려 주세요.")
@@ -755,9 +778,19 @@ class CCTVMainWindow(QMainWindow):
         elif event_type == "network_failure":
             desc = event.get("message", "네트워크 장애 감지")
             color = "#facc15"
+            self.set_camera_status(
+                "● CAM-01 · 네트워크 장애",
+                "#facc15",
+                "#facc15"
+            )
         elif event_type == "network_recovered":
             desc = event.get("message", "장애 복구 영상 저장 완료")
             color = "#38bdf8"
+            self.set_camera_status(
+                "● CAM-01 · LIVE",
+                "#22c55e",
+                "#22c55e"
+            )
         else:
             desc = f"ID {person_id} {event_type}"
             color = "#38bdf8"
