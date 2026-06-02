@@ -1,8 +1,5 @@
-# 서버 자원 모니터링 FastAPI 앱입니다.
-# 클라이언트 요청을 받아 서버의 CPU와 메모리 사용률을 반환합니다.
-# 임시 모니터링 대상 프로세스는 현재 FastAPI 서버 프로세스입니다.
-
 import os
+import time
 from datetime import datetime
 
 import psutil
@@ -11,105 +8,172 @@ from fastapi import FastAPI, HTTPException
 
 app = FastAPI(title="AI CCTV Resource Monitor Server")
 
+DEFAULT_PROCESS_KEYWORDS = (
+    "stream_and_record.sh",
+    "ffmpeg",
+    "gst-launch",
+    "gstreamer",
+    "libcamera",
+    "rpicam",
+    "backup_api_server",
+    "resource_monitor",
+    "ai_cctv",
+)
+
 
 class ResourceUsageCollector:
-    """서버와 특정 프로세스의 자원 사용률을 수집합니다.
-
-    인자:
-        process_id: 모니터링할 프로세스 ID입니다.
-        sample_interval_seconds: CPU 사용률 샘플링 시간입니다.
-    반환값:
-        ResourceUsageCollector 인스턴스를 반환합니다.
-    """
-
-    def __init__(self, process_id=None, sample_interval_seconds=0.1):
-        """자원 사용률 수집 대상을 초기화합니다.
-
-        인자:
-            process_id: 모니터링할 프로세스 ID이며 없으면 현재 프로세스입니다.
-            sample_interval_seconds: CPU 사용률을 계산할 샘플링 시간입니다.
-        반환값:
-            없음.
-        """
-
-        self.process_id = process_id if process_id is not None else os.getpid()
+    def __init__(self, sample_interval_seconds=0.1):
         self.sample_interval_seconds = sample_interval_seconds
 
     def collect(self):
-        """전체 시스템과 대상 프로세스의 자원 사용률을 수집합니다.
+        processes = self._collect_target_processes()
 
-        인자:
-            없음.
-        반환값:
-            CPU와 메모리 사용률을 담은 딕셔너리를 반환합니다.
-        """
+        for process in processes:
+            try:
+                process.cpu_percent(interval=None)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
 
-        process = self._get_process()
+        time.sleep(self.sample_interval_seconds)
+
+        cpu_total_percent = psutil.cpu_percent(interval=None)
+        cpu_count = psutil.cpu_count() or 1
+        process_cpu_percent = self._sum_process_cpu_percent(processes) / cpu_count
+        process_cpu_percent = min(100.0, max(0.0, process_cpu_percent))
+
+        memory = psutil.virtual_memory()
+        process_memory_bytes = self._sum_process_memory_bytes(processes)
+        other_memory_bytes = max(0, memory.used - process_memory_bytes)
+
+        disk_path = os.getenv("AI_CCTV_DISK_PATH", os.getcwd())
+        if not os.path.exists(disk_path):
+            disk_path = os.getcwd()
+        disk = psutil.disk_usage(disk_path)
+
         return {
             "collected_at": datetime.now().isoformat(timespec="seconds"),
+            "process": {
+                "count": len(processes),
+                "pids": [process.pid for process in processes],
+                "keywords": self._get_process_keywords(),
+            },
             "cpu": {
-                "total_percent": psutil.cpu_percent(
-                    interval=self.sample_interval_seconds
-                ),
+                "total_percent": cpu_total_percent,
+                "app_percent": process_cpu_percent,
+                "other_percent": max(0.0, cpu_total_percent - process_cpu_percent),
+                "idle_percent": max(0.0, 100.0 - cpu_total_percent),
             },
             "memory": {
-                "total_percent": psutil.virtual_memory().percent,
+                "used_percent": memory.percent,
+                "total_gb": self._bytes_to_gb(memory.total),
+                "available_gb": self._bytes_to_gb(memory.available),
+                "app_gb": self._bytes_to_gb(process_memory_bytes),
+                "other_gb": self._bytes_to_gb(other_memory_bytes),
             },
-            "process": {
-                "pid": self.process_id,
-                "name": process.name(),
-                "cpu_percent": process.cpu_percent(
-                    interval=self.sample_interval_seconds
-                ),
-                "memory_percent": process.memory_percent(),
+            "disk": {
+                "path": disk_path,
+                "used_percent": disk.percent,
+                "total_gb": self._bytes_to_gb(disk.total),
+                "used_gb": self._bytes_to_gb(disk.used),
+                "free_gb": self._bytes_to_gb(disk.free),
             },
         }
 
-    def _get_process(self):
-        """모니터링 대상 프로세스 객체를 반환합니다.
+    def _collect_target_processes(self):
+        matched_pids = set()
 
-        인자:
-            없음.
-        반환값:
-            psutil.Process 객체를 반환합니다.
-        """
+        for pid in self._get_env_pids():
+            try:
+                matched_pids.add(psutil.Process(pid).pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+                continue
 
-        try:
-            return psutil.Process(self.process_id)
-        except psutil.NoSuchProcess as error:
-            raise RuntimeError(f"프로세스를 찾을 수 없습니다: {self.process_id}") from error
-        except psutil.AccessDenied as error:
-            raise RuntimeError(f"프로세스 접근 권한이 없습니다: {self.process_id}") from error
+        keywords = [keyword.lower() for keyword in self._get_process_keywords()]
+        for process in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                name = process.info.get("name") or ""
+                cmdline = " ".join(process.info.get("cmdline") or [])
+                haystack = f"{name} {cmdline}".lower()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+            if any(keyword in haystack for keyword in keywords):
+                matched_pids.add(process.pid)
+
+        all_pids = set(matched_pids)
+        for pid in list(matched_pids):
+            try:
+                for child in psutil.Process(pid).children(recursive=True):
+                    all_pids.add(child.pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+        processes = []
+        for pid in sorted(all_pids):
+            try:
+                processes.append(psutil.Process(pid))
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return processes
+
+    def _get_env_pids(self):
+        raw_pids = os.getenv("AI_CCTV_MONITOR_PIDS", "")
+        pids = []
+        for value in raw_pids.split(","):
+            value = value.strip()
+            if value.isdigit():
+                pids.append(int(value))
+        return pids
+
+    def _get_process_keywords(self):
+        raw_keywords = os.getenv("AI_CCTV_PROCESS_KEYWORDS", "")
+        if not raw_keywords.strip():
+            return list(DEFAULT_PROCESS_KEYWORDS)
+        return [
+            keyword.strip()
+            for keyword in raw_keywords.split(",")
+            if keyword.strip()
+        ]
+
+    def _sum_process_cpu_percent(self, processes):
+        total = 0.0
+        for process in processes:
+            try:
+                total += process.cpu_percent(interval=None)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return total
+
+    def _sum_process_memory_bytes(self, processes):
+        total = 0
+        for process in processes:
+            try:
+                total += process.memory_info().rss
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return total
+
+    def _bytes_to_gb(self, value):
+        return value / (1024 ** 3)
 
 
 resource_usage_collector = ResourceUsageCollector()
 
 
-@app.get("/monitor/top")
+@app.get("/monitor/resources")
 def read_resource_usage():
-    """서버 자원 사용률 JSON을 반환합니다.
-
-    인자:
-        없음.
-    반환값:
-        전체 CPU, 전체 메모리, 대상 프로세스 사용률 딕셔너리를 반환합니다.
-    """
-
     try:
         return resource_usage_collector.collect()
-    except RuntimeError as error:
+    except Exception as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
 
 
+@app.get("/monitor/top")
+def read_legacy_resource_usage():
+    return read_resource_usage()
+
+
 def main():
-    """개발용 uvicorn 서버를 실행합니다.
-
-    인자:
-        없음.
-    반환값:
-        정상적으로는 반환하지 않습니다.
-    """
-
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8001)

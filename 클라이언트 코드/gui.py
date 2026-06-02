@@ -336,6 +336,13 @@ class VideoWorker(QThread):
             return "http://라즈베리파이IP:8002/recover"
         return f"http://{host}:8002/recover"
 
+    def _build_resource_monitor_url(self, source):
+        parsed = urlparse(str(source))
+        host = parsed.hostname
+        if not host:
+            return None
+        return f"http://{host}:8002"
+
     def handle_rtsp_connection_events(self):
         for event in self.stream.pop_connection_events():
             event_type = event.get("type")
@@ -692,7 +699,10 @@ class CCTVMainWindow(QMainWindow):
         if self.resource_monitor_window is None:
             self.resource_monitor_window = ResourceMonitorWindow(
                 self,
-                storage_path=self.ai_cctv_path or self.storage_root_path
+                storage_path=self.ai_cctv_path or self.storage_root_path,
+                resource_server_url=self._build_resource_monitor_url(
+                    self.video_source
+                )
             )
             self.resource_monitor_window.finished.connect(
                 self.handle_resource_monitor_closed

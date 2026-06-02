@@ -5,7 +5,7 @@ import time
 from ctypes import wintypes
 
 import psutil
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtWidgets import (
     QDialog,
@@ -19,6 +19,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from resource_monitor_client import ResourceMonitorClient
 
 
 class SparklineChart(QWidget):
@@ -186,10 +188,30 @@ class WindowsCpuUtilityCounter:
         self.enabled = False
 
 
+class RemoteResourceWorker(QThread):
+    data_ready = pyqtSignal(dict)
+    error_ready = pyqtSignal(str)
+
+    def __init__(self, server_url, parent=None):
+        super().__init__(parent)
+        self.server_url = server_url
+
+    def run(self):
+        try:
+            client = ResourceMonitorClient(
+                server_url=self.server_url,
+                timeout_seconds=3,
+            )
+            self.data_ready.emit(client.request_resource_usage())
+        except Exception as error:
+            self.error_ready.emit(str(error))
+
+
 class ResourceMonitorWindow(QDialog):
-    def __init__(self, parent=None, storage_path=""):
+    def __init__(self, parent=None, storage_path="", resource_server_url=None):
         super().__init__(parent)
         self.storage_path = storage_path or os.getcwd()
+        self.resource_server_url = resource_server_url
         self.process = psutil.Process(os.getpid())
         self.last_net = psutil.net_io_counters()
         self.last_net_time = time.time()
@@ -197,6 +219,7 @@ class ResourceMonitorWindow(QDialog):
         self.gpu_cache = None
         self.cpu_utility_counter = WindowsCpuUtilityCounter()
         self.monitor_view = "pc"
+        self.remote_worker = None
 
         self.setWindowTitle("리소스 모니터링")
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
@@ -248,22 +271,31 @@ class ResourceMonitorWindow(QDialog):
         grid.addWidget(self.disk_card, 2, 0)
         grid.addWidget(self.network_card, 2, 1)
 
-        smart_page = QFrame()
-        smart_page.setStyleSheet("background-color: #1e293b; border-radius: 8px;")
+        smart_page = QWidget()
         smart_layout = QVBoxLayout(smart_page)
-        smart_layout.setContentsMargins(24, 24, 24, 24)
-        smart_layout.setSpacing(10)
-        smart_layout.addStretch()
+        smart_layout.setContentsMargins(0, 0, 0, 0)
+        smart_layout.setSpacing(14)
 
         smart_title = QLabel("스마트CCTV 모니터링 정보")
-        smart_title.setAlignment(Qt.AlignCenter)
         smart_title.setStyleSheet("font-size: 24px; font-weight: bold;")
         smart_layout.addWidget(smart_title)
 
-        smart_status = QLabel("연결 대기")
-        smart_status.setAlignment(Qt.AlignCenter)
-        smart_status.setStyleSheet("color: #94a3b8; font-size: 16px;")
-        smart_layout.addWidget(smart_status)
+        self.smart_status_label = QLabel("연결 대기")
+        self.smart_status_label.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        smart_layout.addWidget(self.smart_status_label)
+
+        smart_grid = QGridLayout()
+        smart_grid.setSpacing(14)
+        smart_grid.setContentsMargins(0, 0, 0, 0)
+
+        self.smart_cpu_card = ResourceCard("스마트CCTV CPU", "#22c55e")
+        self.smart_ram_card = ResourceCard("스마트CCTV RAM", "#38bdf8")
+        self.smart_disk_card = ResourceCard("스마트CCTV 저장 공간", "#fb7185")
+
+        smart_grid.addWidget(self.smart_cpu_card, 0, 0)
+        smart_grid.addWidget(self.smart_ram_card, 0, 1)
+        smart_grid.addWidget(self.smart_disk_card, 1, 0, 1, 2)
+        smart_layout.addLayout(smart_grid)
         smart_layout.addStretch()
 
         self.monitor_stack.addWidget(pc_page)
@@ -286,7 +318,8 @@ class ResourceMonitorWindow(QDialog):
             self.monitor_view = "smart"
             self.monitor_stack.setCurrentIndex(1)
             self.switch_monitor_button.setText("사용자PC 모니터링 정보")
-            self.summary_label.setText("스마트CCTV 리소스 정보 연결 대기")
+            self.summary_label.setText("스마트CCTV 리소스 정보를 수집 중입니다.")
+            self.refresh_smart_resources()
             return
 
         self.monitor_view = "pc"
@@ -305,7 +338,7 @@ class ResourceMonitorWindow(QDialog):
 
     def refresh(self):
         if self.monitor_view == "smart":
-            self.summary_label.setText("스마트CCTV 리소스 정보 연결 대기")
+            self.refresh_smart_resources()
             return
 
         cpu = self._collect_cpu()
@@ -376,6 +409,71 @@ class ResourceMonitorWindow(QDialog):
             f"업데이트: {time.strftime('%H:%M:%S')} · "
             "수집 주기 1초 · GPU 정보는 약 3초마다 갱신"
         )
+
+    def refresh_smart_resources(self):
+        if not self.resource_server_url:
+            self.summary_label.setText("스마트CCTV 리소스 서버 주소가 설정되지 않았습니다.")
+            self.smart_status_label.setText("RTSP 주소를 설정하면 같은 IP의 8002 포트로 연결합니다.")
+            return
+
+        if self.remote_worker is not None and self.remote_worker.isRunning():
+            return
+
+        self.smart_status_label.setText(f"요청 중: {self.resource_server_url}")
+        self.remote_worker = RemoteResourceWorker(self.resource_server_url, self)
+        self.remote_worker.data_ready.connect(self.handle_smart_resource_data)
+        self.remote_worker.error_ready.connect(self.handle_smart_resource_error)
+        self.remote_worker.finished.connect(self.handle_smart_resource_finished)
+        self.remote_worker.start()
+
+    def handle_smart_resource_data(self, resource_usage):
+        cpu = resource_usage.get("cpu", {})
+        memory = resource_usage.get("memory", {})
+        disk = resource_usage.get("disk", {})
+        process = resource_usage.get("process", {})
+
+        self.smart_cpu_card.update_data(
+            cpu.get("total_percent", 0),
+            f"{cpu.get('total_percent', 0):.0f}%",
+            (
+                f"우리 프로세스 {cpu.get('app_percent', 0):.1f}% · "
+                f"기타 {cpu.get('other_percent', 0):.1f}% · "
+                f"가용 {cpu.get('idle_percent', 0):.1f}%"
+            ),
+        )
+        self.smart_ram_card.update_data(
+            memory.get("used_percent", 0),
+            f"{memory.get('available_gb', 0):.1f}GB 여유",
+            (
+                f"총 {memory.get('total_gb', 0):.1f}GB · "
+                f"우리 {memory.get('app_gb', 0):.2f}GB · "
+                f"기타 {memory.get('other_gb', 0):.1f}GB"
+            ),
+        )
+        self.smart_disk_card.update_data(
+            disk.get("used_percent", 0),
+            f"{disk.get('free_gb', 0):.1f}GB 여유",
+            (
+                f"총 {disk.get('total_gb', 0):.1f}GB · "
+                f"사용 {disk.get('used_gb', 0):.1f}GB · "
+                f"대상 경로: {disk.get('path', '-')}"
+            ),
+        )
+
+        collected_at = resource_usage.get("collected_at", "-")
+        self.smart_status_label.setText(
+            f"연결됨 · 대상 프로세스 {process.get('count', 0)}개 · 수집 시각 {collected_at}"
+        )
+        self.summary_label.setText(
+            f"스마트CCTV 업데이트: {time.strftime('%H:%M:%S')} · 수집 주기 1초"
+        )
+
+    def handle_smart_resource_error(self, message):
+        self.smart_status_label.setText(f"연결 실패: {message}")
+        self.summary_label.setText("스마트CCTV 리소스 정보를 가져오지 못했습니다.")
+
+    def handle_smart_resource_finished(self):
+        self.remote_worker = None
 
     def _collect_cpu(self):
         total_percent = self.cpu_utility_counter.read()
@@ -594,5 +692,8 @@ class ResourceMonitorWindow(QDialog):
 
     def closeEvent(self, event):
         self.timer.stop()
+        if self.remote_worker is not None and self.remote_worker.isRunning():
+            self.remote_worker.quit()
+            self.remote_worker.wait(4000)
         self.cpu_utility_counter.close()
         event.accept()
