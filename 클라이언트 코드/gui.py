@@ -478,11 +478,19 @@ class CCTVMainWindow(QMainWindow):
         )
         self.btn_setting.clicked.connect(self.open_settings)
 
+        self.btn_resource_monitor = QPushButton("리소스 모니터링")
+        self.btn_resource_monitor.setStyleSheet(
+            "background-color: #0e7490; color: white; padding: 8px 20px; "
+            "border-radius: 5px; font-weight: bold;"
+        )
+        self.btn_resource_monitor.clicked.connect(self.open_resource_monitor)
+
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         header_layout.addWidget(self.btn_start)
         header_layout.addWidget(self.btn_stop)
         header_layout.addWidget(self.btn_setting)
+        header_layout.addWidget(self.btn_resource_monitor)
 
         main_layout.addLayout(header_layout)
 
@@ -677,6 +685,10 @@ class CCTVMainWindow(QMainWindow):
                     "저장 경로가 설정되지 않았습니다.\n\n"
                     "설정 → 저장 설정에서 위치를 선택하세요."
                 )
+
+    def open_resource_monitor(self):
+        # TODO: 리소스 모니터링 대시보드 창을 단계적으로 연결합니다.
+        pass
 
     def update_frame(self, frame):
         if self.cam_status.text() != "● CAM-01 · LIVE":
