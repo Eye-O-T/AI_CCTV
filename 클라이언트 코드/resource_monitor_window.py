@@ -284,7 +284,11 @@ class ResourceMonitorWindow(QDialog):
         self.smart_status_label.setStyleSheet("color: #94a3b8; font-size: 13px;")
         smart_layout.addWidget(self.smart_status_label)
 
-        smart_grid = QGridLayout()
+        self.smart_content_stack = QStackedWidget()
+        smart_layout.addWidget(self.smart_content_stack, stretch=1)
+
+        smart_cards_page = QWidget()
+        smart_grid = QGridLayout(smart_cards_page)
         smart_grid.setSpacing(14)
         smart_grid.setContentsMargins(0, 0, 0, 0)
 
@@ -295,8 +299,36 @@ class ResourceMonitorWindow(QDialog):
         smart_grid.addWidget(self.smart_cpu_card, 0, 0)
         smart_grid.addWidget(self.smart_ram_card, 0, 1)
         smart_grid.addWidget(self.smart_disk_card, 1, 0, 1, 2)
-        smart_layout.addLayout(smart_grid)
-        smart_layout.addStretch()
+
+        self.smart_warning_page = QFrame()
+        self.smart_warning_page.setStyleSheet(
+            "QFrame { background-color: #160f12; border: none; "
+            "border-radius: 8px; }"
+            "QLabel { background: transparent; }"
+        )
+        warning_layout = QVBoxLayout(self.smart_warning_page)
+        warning_layout.setContentsMargins(32, 32, 32, 32)
+        warning_layout.setSpacing(16)
+        warning_layout.addStretch()
+
+        self.smart_warning_title = QLabel("네트워크 연결 장애")
+        self.smart_warning_title.setAlignment(Qt.AlignCenter)
+        self.smart_warning_title.setStyleSheet(
+            "color: #f87171; font-size: 34px; font-weight: bold;"
+        )
+        warning_layout.addWidget(self.smart_warning_title)
+
+        self.smart_warning_message = QLabel("스마트CCTV 네트워크 연결 상태를 확인하세요.")
+        self.smart_warning_message.setAlignment(Qt.AlignCenter)
+        self.smart_warning_message.setWordWrap(True)
+        self.smart_warning_message.setStyleSheet(
+            "color: #fecaca; font-size: 22px; line-height: 145%;"
+        )
+        warning_layout.addWidget(self.smart_warning_message)
+        warning_layout.addStretch()
+
+        self.smart_content_stack.addWidget(smart_cards_page)
+        self.smart_content_stack.addWidget(self.smart_warning_page)
 
         self.monitor_stack.addWidget(pc_page)
         self.monitor_stack.addWidget(smart_page)
@@ -414,6 +446,10 @@ class ResourceMonitorWindow(QDialog):
         if not self.resource_server_url:
             self.summary_label.setText("스마트CCTV 리소스 서버 주소가 설정되지 않았습니다.")
             self.smart_status_label.setText("RTSP 주소를 설정하면 같은 IP의 8002 포트로 연결합니다.")
+            self.show_smart_network_warning(
+                "스마트CCTV 주소를 찾을 수 없습니다.",
+                "설정에서 RTSP 주소가 rtsp://라즈베리파이IP:포트/경로 형태인지 확인하세요.",
+            )
             return
 
         if self.remote_worker is not None and self.remote_worker.isRunning():
@@ -427,6 +463,7 @@ class ResourceMonitorWindow(QDialog):
         self.remote_worker.start()
 
     def handle_smart_resource_data(self, resource_usage):
+        self.show_smart_resource_cards()
         cpu = resource_usage.get("cpu", {})
         memory = resource_usage.get("memory", {})
         disk = resource_usage.get("disk", {})
@@ -469,11 +506,22 @@ class ResourceMonitorWindow(QDialog):
         )
 
     def handle_smart_resource_error(self, message):
-        self.smart_status_label.setText(f"연결 실패: {message}")
+        self.smart_status_label.setText("연결 실패")
         self.summary_label.setText("스마트CCTV 리소스 정보를 가져오지 못했습니다.")
+        self.show_smart_network_warning(
+            "스마트CCTV 네트워크 연결 상태를 확인하세요.",
+            f"요청 주소: {self.resource_server_url}\n오류: {message}",
+        )
 
     def handle_smart_resource_finished(self):
         self.remote_worker = None
+
+    def show_smart_resource_cards(self):
+        self.smart_content_stack.setCurrentIndex(0)
+
+    def show_smart_network_warning(self, message, detail):
+        self.smart_warning_message.setText(message)
+        self.smart_content_stack.setCurrentIndex(1)
 
     def _collect_cpu(self):
         total_percent = self.cpu_utility_counter.read()
