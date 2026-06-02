@@ -1,6 +1,8 @@
+import ctypes
 import os
 import subprocess
 import time
+from ctypes import wintypes
 
 import psutil
 from PyQt5.QtCore import Qt, QTimer
@@ -111,6 +113,77 @@ class ResourceCard(QFrame):
         self.chart.add_value(safe_percent)
 
 
+class WindowsCpuUtilityCounter:
+    PDH_FMT_DOUBLE = 0x00000200
+    ERROR_SUCCESS = 0
+
+    class PdhFmtCounterValue(ctypes.Structure):
+        _fields_ = [
+            ("CStatus", wintypes.DWORD),
+            ("doubleValue", ctypes.c_double),
+        ]
+
+    def __init__(self):
+        self.enabled = False
+        self.query = wintypes.HANDLE()
+        self.counter = wintypes.HANDLE()
+        self.pdh = None
+
+        if os.name != "nt":
+            return
+
+        try:
+            self.pdh = ctypes.WinDLL("pdh.dll")
+            if self.pdh.PdhOpenQueryW(None, 0, ctypes.byref(self.query)) != self.ERROR_SUCCESS:
+                return
+
+            counter_path = r"\Processor Information(_Total)\% Processor Utility"
+            add_counter = getattr(self.pdh, "PdhAddEnglishCounterW", None)
+            if add_counter is None:
+                return
+
+            if add_counter(
+                self.query,
+                counter_path,
+                0,
+                ctypes.byref(self.counter),
+            ) != self.ERROR_SUCCESS:
+                return
+
+            self.pdh.PdhCollectQueryData(self.query)
+            self.enabled = True
+        except (AttributeError, OSError):
+            self.close()
+
+    def read(self):
+        if not self.enabled:
+            return None
+
+        value = self.PdhFmtCounterValue()
+        try:
+            if self.pdh.PdhCollectQueryData(self.query) != self.ERROR_SUCCESS:
+                return None
+            if self.pdh.PdhGetFormattedCounterValue(
+                self.counter,
+                self.PDH_FMT_DOUBLE,
+                None,
+                ctypes.byref(value),
+            ) != self.ERROR_SUCCESS:
+                return None
+        except OSError:
+            return None
+
+        return max(0.0, min(100.0, float(value.doubleValue)))
+
+    def close(self):
+        if self.pdh is not None and self.query:
+            try:
+                self.pdh.PdhCloseQuery(self.query)
+            except OSError:
+                pass
+        self.enabled = False
+
+
 class ResourceMonitorWindow(QDialog):
     def __init__(self, parent=None, storage_path=""):
         super().__init__(parent)
@@ -120,6 +193,7 @@ class ResourceMonitorWindow(QDialog):
         self.last_net_time = time.time()
         self.last_gpu_update = 0
         self.gpu_cache = None
+        self.cpu_utility_counter = WindowsCpuUtilityCounter()
 
         self.setWindowTitle("리소스 모니터링")
         self.setMinimumSize(960, 720)
@@ -218,13 +292,18 @@ class ResourceMonitorWindow(QDialog):
             self.gpu_card.update_data(0, "지원 안 됨", "NVIDIA GPU 정보를 찾지 못했습니다.")
             self.vram_card.update_data(0, "지원 안 됨", "VRAM 사용량을 가져올 수 없습니다.")
         else:
-            app_vram_text = "측정 불가"
-            app_vram_detail = "프로세스별 VRAM은 Windows/NVIDIA 권한 제한으로 숨겨질 수 있습니다."
+            vram_total_gb = self._mb_to_gb(gpu["vram_total_mb"])
+            vram_used_gb = self._mb_to_gb(gpu["vram_used_mb"])
+            vram_free_gb = self._mb_to_gb(gpu["vram_free_mb"])
+            vram_detail = (
+                f"총 {vram_total_gb:.1f}GB · "
+                f"사용 {vram_used_gb:.1f}GB · 프로세스별 측정 불가"
+            )
             if gpu["app_vram_mb"] is not None:
-                app_vram_text = f"우리 {gpu['app_vram_mb']:.0f}MB"
-                app_vram_detail = (
-                    f"우리 {gpu['app_vram_mb']:.0f}MB · "
-                    f"기타 {gpu['other_vram_mb']:.0f}MB"
+                vram_detail = (
+                    f"총 {vram_total_gb:.1f}GB · "
+                    f"우리 {self._mb_to_gb(gpu['app_vram_mb']):.1f}GB · "
+                    f"기타 {self._mb_to_gb(gpu['other_vram_mb']):.1f}GB"
                 )
 
             self.gpu_card.update_data(
@@ -234,12 +313,8 @@ class ResourceMonitorWindow(QDialog):
             )
             self.vram_card.update_data(
                 gpu["vram_percent"],
-                f"{gpu['vram_free_mb']:.0f}MB 여유",
-                (
-                    f"총 {gpu['vram_total_mb']:.0f}MB · "
-                    f"{app_vram_text} · "
-                    f"{app_vram_detail}"
-                ),
+                f"{vram_free_gb:.1f}GB 여유",
+                vram_detail,
             )
 
         if temp is None:
@@ -257,7 +332,9 @@ class ResourceMonitorWindow(QDialog):
         )
 
     def _collect_cpu(self):
-        total_percent = psutil.cpu_percent(interval=None)
+        total_percent = self.cpu_utility_counter.read()
+        if total_percent is None:
+            total_percent = psutil.cpu_percent(interval=None)
         cpu_count = psutil.cpu_count() or 1
         app_percent = self._process_cpu_percent() / cpu_count
         app_percent = min(100.0, max(0.0, app_percent))
@@ -269,6 +346,9 @@ class ResourceMonitorWindow(QDialog):
             "other_percent": other_percent,
             "idle_percent": idle_percent,
         }
+
+    def _mb_to_gb(self, value):
+        return float(value) / 1024.0
 
     def _process_cpu_percent(self):
         total = 0.0
@@ -378,6 +458,7 @@ class ResourceMonitorWindow(QDialog):
             "util_percent": util_total / gpu_count,
             "vram_percent": (vram_used / vram_total * 100.0) if vram_total else 0.0,
             "vram_total_mb": vram_total,
+            "vram_used_mb": vram_used,
             "vram_free_mb": max(0.0, vram_total - vram_used),
             "app_vram_mb": app_vram,
             "other_vram_mb": other_vram,
@@ -467,4 +548,5 @@ class ResourceMonitorWindow(QDialog):
 
     def closeEvent(self, event):
         self.timer.stop()
+        self.cpu_utility_counter.close()
         event.accept()
