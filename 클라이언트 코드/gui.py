@@ -336,13 +336,6 @@ class VideoWorker(QThread):
             return "http://라즈베리파이IP:8002/recover"
         return f"http://{host}:8002/recover"
 
-    def _build_resource_monitor_url(self, source):
-        parsed = urlparse(str(source))
-        host = parsed.hostname
-        if not host:
-            return None
-        return f"http://{host}:8002"
-
     def handle_rtsp_connection_events(self):
         for event in self.stream.pop_connection_events():
             event_type = event.get("type")
@@ -694,6 +687,13 @@ class CCTVMainWindow(QMainWindow):
                     "저장 경로가 설정되지 않았습니다.\n\n"
                     "설정 → 저장 설정에서 위치를 선택하세요."
                 )
+
+    def _build_resource_monitor_url(self, source):
+        parsed = urlparse(str(source))
+        host = parsed.hostname
+        if not host:
+            return None
+        return f"http://{host}:8002"
 
     def open_resource_monitor(self):
         if self.resource_monitor_window is None:
