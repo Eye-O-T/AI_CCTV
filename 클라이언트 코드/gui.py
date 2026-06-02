@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QImage, QPixmap
 from settings_window import SettingsWindow
+from resource_monitor_window import ResourceMonitorWindow
 from video_stream import VideoStream
 from person_tracker import PersonTracker
 from full_body_checker import FullBodyChecker
@@ -442,6 +443,7 @@ class CCTVMainWindow(QMainWindow):
         self.ai_cctv_path = ""
         self.original_segment_seconds = 10
         self.clip_max_seconds = 10
+        self.resource_monitor_window = None
 
         self.init_ui()
 
@@ -687,8 +689,21 @@ class CCTVMainWindow(QMainWindow):
                 )
 
     def open_resource_monitor(self):
-        # TODO: 리소스 모니터링 대시보드 창을 단계적으로 연결합니다.
-        pass
+        if self.resource_monitor_window is None:
+            self.resource_monitor_window = ResourceMonitorWindow(
+                self,
+                storage_path=self.ai_cctv_path or self.storage_root_path
+            )
+            self.resource_monitor_window.finished.connect(
+                self.handle_resource_monitor_closed
+            )
+
+        self.resource_monitor_window.show()
+        self.resource_monitor_window.raise_()
+        self.resource_monitor_window.activateWindow()
+
+    def handle_resource_monitor_closed(self):
+        self.resource_monitor_window = None
 
     def update_frame(self, frame):
         if self.cam_status.text() != "● CAM-01 · LIVE":
