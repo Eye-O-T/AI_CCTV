@@ -26,6 +26,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QImage, QPixmap
 from settings_window import SettingsWindow
+from resource_monitor_window import ResourceMonitorWindow
 from video_stream import VideoStream
 from person_tracker import PersonTracker
 from full_body_checker import FullBodyChecker
@@ -442,6 +443,7 @@ class CCTVMainWindow(QMainWindow):
         self.ai_cctv_path = ""
         self.original_segment_seconds = 10
         self.clip_max_seconds = 10
+        self.resource_monitor_window = None
 
         self.init_ui()
 
@@ -478,11 +480,19 @@ class CCTVMainWindow(QMainWindow):
         )
         self.btn_setting.clicked.connect(self.open_settings)
 
+        self.btn_resource_monitor = QPushButton("리소스 모니터링")
+        self.btn_resource_monitor.setStyleSheet(
+            "background-color: #0e7490; color: white; padding: 8px 20px; "
+            "border-radius: 5px; font-weight: bold;"
+        )
+        self.btn_resource_monitor.clicked.connect(self.open_resource_monitor)
+
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         header_layout.addWidget(self.btn_start)
         header_layout.addWidget(self.btn_stop)
         header_layout.addWidget(self.btn_setting)
+        header_layout.addWidget(self.btn_resource_monitor)
 
         main_layout.addLayout(header_layout)
 
@@ -677,6 +687,23 @@ class CCTVMainWindow(QMainWindow):
                     "저장 경로가 설정되지 않았습니다.\n\n"
                     "설정 → 저장 설정에서 위치를 선택하세요."
                 )
+
+    def open_resource_monitor(self):
+        if self.resource_monitor_window is None:
+            self.resource_monitor_window = ResourceMonitorWindow(
+                self,
+                storage_path=self.ai_cctv_path or self.storage_root_path
+            )
+            self.resource_monitor_window.finished.connect(
+                self.handle_resource_monitor_closed
+            )
+
+        self.resource_monitor_window.show()
+        self.resource_monitor_window.raise_()
+        self.resource_monitor_window.activateWindow()
+
+    def handle_resource_monitor_closed(self):
+        self.resource_monitor_window = None
 
     def update_frame(self, frame):
         if self.cam_status.text() != "● CAM-01 · LIVE":
