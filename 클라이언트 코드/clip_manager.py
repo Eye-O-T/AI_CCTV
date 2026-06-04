@@ -2,7 +2,7 @@
 
 import os
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import cv2
 
@@ -17,6 +17,7 @@ class ClipManager:
     ):
         self.base_dir = base_dir
         self.fps = fps if fps and fps > 0 else 30
+        self.frame_interval = timedelta(seconds=1.0 / self.fps)
         self.max_clip_seconds = max_clip_seconds
         self.disappear_timeout = disappear_timeout
         self.clip_root_dir = os.path.join(self.base_dir, "이벤트 CLIP")
@@ -48,8 +49,7 @@ class ClipManager:
             self._close_writer(state)
             self._start_new_clip(state, frame_size)
 
-        if state["writer"] is not None:
-            state["writer"].write(frame)
+        self._write_frame_by_wall_clock(state, frame, datetime.now())
 
     def finish_person(self, person_id):
         state = self.person_clips.pop(person_id, None)
@@ -78,6 +78,9 @@ class ClipManager:
             "folder_path": folder_path,
             "clip_index": 0,
             "clip_started_at": None,
+            "next_frame_time": None,
+            "frames_written": 0,
+            "clip_path": None,
             "writer": None,
             "points": [],
             "last_frame": frame.copy(),
@@ -87,6 +90,8 @@ class ClipManager:
     def _start_new_clip(self, state, frame_size):
         state["clip_index"] += 1
         state["clip_started_at"] = datetime.now()
+        state["next_frame_time"] = state["clip_started_at"]
+        state["frames_written"] = 0
 
         clip_filename = f"clip_{state['clip_index']:03d}.mp4"
         clip_path = os.path.join(state["folder_path"], clip_filename)
@@ -97,15 +102,56 @@ class ClipManager:
         if not writer.isOpened():
             print(f"클립 영상 Writer 생성 실패: {clip_path}")
             state["writer"] = None
+            state["clip_path"] = None
             return
 
         state["writer"] = writer
+        state["clip_path"] = clip_path
 
     def _close_writer(self, state):
         writer = state.get("writer")
         if writer is not None:
+            ended_at = datetime.now()
+            wall_seconds = (
+                ended_at - state["clip_started_at"]
+            ).total_seconds()
+            encoded_seconds = state["frames_written"] / self.fps if self.fps else 0
+            effective_fps = (
+                state["frames_written"] / wall_seconds
+                if wall_seconds > 0
+                else 0
+            )
             writer.release()
             state["writer"] = None
+            print(
+                "클립 영상 저장 종료: "
+                f"{state.get('clip_path')} "
+                f"(실시간 {wall_seconds:.2f}s, 재생예상 {encoded_seconds:.2f}s, "
+                f"저장프레임 {state['frames_written']}, 실효FPS {effective_fps:.2f})"
+            )
+            state["next_frame_time"] = None
+            state["frames_written"] = 0
+            state["clip_path"] = None
+
+    def _write_frame_by_wall_clock(self, state, frame, now):
+        writer = state.get("writer")
+        next_frame_time = state.get("next_frame_time")
+
+        if writer is None or next_frame_time is None:
+            return
+
+        writes = 0
+        max_writes_per_input = max(1, int(self.fps * 2))
+
+        while state["next_frame_time"] <= now and writes < max_writes_per_input:
+            writer.write(frame)
+            state["next_frame_time"] += self.frame_interval
+            state["frames_written"] += 1
+            writes += 1
+
+        if writes == max_writes_per_input and state["next_frame_time"] <= now:
+            state["next_frame_time"] = now + self.frame_interval
+            print("클립 영상 프레임 보정 한도 초과: 긴 지연 구간을 건너뜁니다.")
 
     def _should_rotate_clip(self, state):
         if self.max_clip_seconds is None:
