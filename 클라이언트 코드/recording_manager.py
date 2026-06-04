@@ -2,7 +2,7 @@
 
 import os
 import cv2
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class RecordingManager:
@@ -30,12 +30,17 @@ class RecordingManager:
         self.start_time = None
         self.start_time_str = None # 녹화 시작시간 파일 이름 형식에 맞게 변환
         self.temp_save_path = None # 임시 파일 저장 경로
+        self.next_frame_time = None
+        self.frame_interval = timedelta(seconds=1.0 / self.fps)
+        self.frames_written = 0
 
     def start_recording(self, frame_size): # 새로운 mp4파일 저장하는 함수
         self.frame_size = frame_size # 현재 프레임의 크기 저장
 
         self.start_time = datetime.now()
         self.start_time_str = self.start_time.strftime("%Y-%m-%d_%H-%M-%S") # 녹화 시작시간 파일 이름 형식에 맞게 변환
+        self.next_frame_time = self.start_time
+        self.frames_written = 0
 
         # 처음 저장시 임시파일 이름으로 저장. 
         temp_filename = f"recording_{self.start_time_str}.mp4" 
@@ -94,10 +99,24 @@ class RecordingManager:
             self.stop_recording()
             self.start_recording(current_frame_size)
 
-        # 현재 프레임을 mp4 파일에 저장
-        # 이 코드가 실제로 한 프레임씩 영상을 쌓는 부분
-        if self.writer is not None:
+        self._write_frame_by_wall_clock(frame, datetime.now())
+
+    def _write_frame_by_wall_clock(self, frame, now):
+        if self.writer is None or self.next_frame_time is None:
+            return
+
+        writes = 0
+        max_writes_per_input = max(1, int(self.fps * 2))
+
+        while self.next_frame_time <= now and writes < max_writes_per_input:
             self.writer.write(frame)
+            self.next_frame_time += self.frame_interval
+            self.frames_written += 1
+            writes += 1
+
+        if writes == max_writes_per_input and self.next_frame_time <= now:
+            self.next_frame_time = now + self.frame_interval
+            print("원본 영상 프레임 보정 한도 초과: 긴 지연 구간을 건너뜁니다.")
 
     # 현재 저장 중인 영상 파일을 종료하는 함수
     def stop_recording(self):
@@ -105,12 +124,17 @@ class RecordingManager:
         if self.writer is None:
             return
 
+        end_time = datetime.now()
+        wall_seconds = (end_time - self.start_time).total_seconds()
+        encoded_seconds = self.frames_written / self.fps if self.fps else 0
+        effective_fps = self.frames_written / wall_seconds if wall_seconds > 0 else 0
+
         # release를 호출해서 writer닫기. 안하면 파일 깨지거나 정상 재생 안됨.
         self.writer.release()
         self.writer = None
 
         # 종료시간 문자열 만들기(파일 이름용)
-        end_time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        end_time_str = end_time.strftime("%Y-%m-%d_%H-%M-%S")
 
         # 임시파일 이름을 시작시간~종료시간으로 바꿔서 저장
         final_filename = f"{self.start_time_str}~{end_time_str}.mp4"
@@ -128,7 +152,12 @@ class RecordingManager:
                 final_save_path
             )
 
-            print(f"원본 영상 저장 종료: {final_save_path}")
+            print(
+                "원본 영상 저장 종료: "
+                f"{final_save_path} "
+                f"(실시간 {wall_seconds:.2f}s, 재생예상 {encoded_seconds:.2f}s, "
+                f"저장프레임 {self.frames_written}, 실효FPS {effective_fps:.2f})"
+            )
 
         except Exception as e:
             print(f"파일 이름 변경 실패: {e}")
@@ -137,3 +166,5 @@ class RecordingManager:
         self.start_time = None
         self.start_time_str = None
         self.temp_save_path = None
+        self.next_frame_time = None
+        self.frames_written = 0
