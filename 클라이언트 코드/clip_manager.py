@@ -3,6 +3,7 @@
 import os
 import shutil
 from datetime import datetime, timedelta
+from math import hypot
 
 import cv2
 
@@ -14,12 +15,23 @@ class ClipManager:
         fps=30,
         max_clip_seconds=10,
         disappear_timeout=3.0,
+        trajectory_sample_interval=5,
+        trajectory_min_distance=10,
+        trajectory_smoothing_alpha=0.35,
+        trajectory_simplify_epsilon=4.0,
     ):
         self.base_dir = base_dir
         self.fps = fps if fps and fps > 0 else 30
         self.frame_interval = timedelta(seconds=1.0 / self.fps)
         self.max_clip_seconds = max_clip_seconds
         self.disappear_timeout = disappear_timeout
+        self.trajectory_sample_interval = max(1, int(trajectory_sample_interval))
+        self.trajectory_min_distance = max(0, int(trajectory_min_distance))
+        self.trajectory_smoothing_alpha = min(
+            1.0,
+            max(0.0, float(trajectory_smoothing_alpha)),
+        )
+        self.trajectory_simplify_epsilon = max(0.0, float(trajectory_simplify_epsilon))
         self.clip_root_dir = os.path.join(self.base_dir, "이벤트 CLIP")
         self.person_clips = {}
 
@@ -36,7 +48,7 @@ class ClipManager:
 
         state["last_seen"] = datetime.now()
         state["last_frame"] = frame.copy()
-        state["points"].append(self._get_bbox_center(bbox))
+        self._add_trajectory_point(state, bbox)
 
         if crop_path is not None:
             self._copy_crop_once(state, crop_path)
@@ -92,6 +104,10 @@ class ClipManager:
             "clip_completed": False,
             "writer": None,
             "points": [],
+            "trajectory_frame_count": 0,
+            "last_trajectory_point": None,
+            "last_bbox_diagonal": None,
+            "jump_skip_count": 0,
             "last_frame": frame.copy(),
             "crop_saved": False,
         }
@@ -189,6 +205,7 @@ class ClipManager:
             return
 
         trajectory_frame = frame.copy()
+        points = self._simplify_points(points)
 
         for index, point in enumerate(points):
             cv2.circle(trajectory_frame, point, 4, (0, 255, 255), -1)
@@ -205,6 +222,76 @@ class ClipManager:
         save_path = os.path.join(state["folder_path"], "trajectory.jpg")
         cv2.imwrite(save_path, trajectory_frame)
 
+    def _add_trajectory_point(self, state, bbox):
+        state["trajectory_frame_count"] += 1
+
+        raw_point = self._get_bbox_ground_anchor(bbox)
+        bbox_diagonal = self._get_bbox_diagonal(bbox)
+        previous_point = state.get("last_trajectory_point")
+
+        if previous_point is None:
+            self._append_trajectory_point(state, raw_point, bbox_diagonal)
+            return
+
+        if state["trajectory_frame_count"] % self.trajectory_sample_interval != 0:
+            return
+
+        distance = self._distance(previous_point, raw_point)
+        if distance < self.trajectory_min_distance:
+            return
+
+        max_jump_distance = max(80.0, bbox_diagonal * 1.4)
+        if distance > max_jump_distance:
+            state["jump_skip_count"] += 1
+            if state["jump_skip_count"] < 3:
+                return
+
+            state["last_trajectory_point"] = (
+                float(raw_point[0]),
+                float(raw_point[1]),
+            )
+            state["last_bbox_diagonal"] = bbox_diagonal
+            state["jump_skip_count"] = 0
+            return
+
+        state["jump_skip_count"] = 0
+        alpha = self.trajectory_smoothing_alpha
+        smoothed_point = (
+            previous_point[0] * (1.0 - alpha) + raw_point[0] * alpha,
+            previous_point[1] * (1.0 - alpha) + raw_point[1] * alpha,
+        )
+        self._append_trajectory_point(state, smoothed_point, bbox_diagonal)
+
+    def _append_trajectory_point(self, state, point, bbox_diagonal):
+        float_point = (float(point[0]), float(point[1]))
+        int_point = (int(round(float_point[0])), int(round(float_point[1])))
+
+        points = state["points"]
+        if points and points[-1] == int_point:
+            state["last_trajectory_point"] = float_point
+            state["last_bbox_diagonal"] = bbox_diagonal
+            return
+
+        points.append(int_point)
+        state["last_trajectory_point"] = float_point
+        state["last_bbox_diagonal"] = bbox_diagonal
+
+    def _simplify_points(self, points):
+        if len(points) <= 2 or self.trajectory_simplify_epsilon <= 0:
+            return points
+
+        simplified = cv2.approxPolyDP(
+            curve=self._points_to_curve(points),
+            epsilon=self.trajectory_simplify_epsilon,
+            closed=False,
+        )
+        return [tuple(point[0]) for point in simplified]
+
+    def _points_to_curve(self, points):
+        import numpy as np
+
+        return np.array(points, dtype="int32").reshape((-1, 1, 2))
+
     def _copy_crop_once(self, state, crop_path):
         if state["crop_saved"]:
             return
@@ -220,9 +307,16 @@ class ClipManager:
         except Exception as e:
             print(f"전신 crop 복사 실패: {e}")
 
-    def _get_bbox_center(self, bbox):
+    def _get_bbox_ground_anchor(self, bbox):
         x1, y1, x2, y2 = map(int, bbox)
-        return ((x1 + x2) // 2, (y1 + y2) // 2)
+        return ((x1 + x2) // 2, y2)
+
+    def _get_bbox_diagonal(self, bbox):
+        x1, y1, x2, y2 = map(int, bbox)
+        return hypot(x2 - x1, y2 - y1)
+
+    def _distance(self, point_a, point_b):
+        return hypot(point_a[0] - point_b[0], point_a[1] - point_b[1])
 
     def _get_frame_size(self, frame):
         height, width = frame.shape[:2]

@@ -9,7 +9,7 @@ class PersonTracker:
         self,
         model_path="yolo26s.pt",
         target_class="person",
-        conf_threshold=0.3,
+        conf_threshold=0.7,
         tracker_config="bytetrack.yaml",
         reid_timeout=3.0,
         reid_iou_threshold=0.18,
