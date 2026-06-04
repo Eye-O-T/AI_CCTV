@@ -41,15 +41,23 @@ class ClipManager:
         if crop_path is not None:
             self._copy_crop_once(state, crop_path)
 
+        if state["clip_completed"]:
+            return
+
         frame_size = self._get_frame_size(frame)
         if state["writer"] is None:
             self._start_new_clip(state, frame_size)
 
-        if self._should_rotate_clip(state):
-            self._close_writer(state)
-            self._start_new_clip(state, frame_size)
+        if state["writer"] is None:
+            return
 
-        self._write_frame_by_wall_clock(state, frame, datetime.now())
+        now = datetime.now()
+        write_until = self._get_preview_write_until(state, now)
+        self._write_frame_by_wall_clock(state, frame, write_until)
+
+        if self._should_complete_preview(state, now):
+            self._close_writer(state)
+            state["clip_completed"] = True
 
     def finish_person(self, person_id):
         state = self.person_clips.pop(person_id, None)
@@ -81,6 +89,7 @@ class ClipManager:
             "next_frame_time": None,
             "frames_written": 0,
             "clip_path": None,
+            "clip_completed": False,
             "writer": None,
             "points": [],
             "last_frame": frame.copy(),
@@ -88,12 +97,12 @@ class ClipManager:
         }
 
     def _start_new_clip(self, state, frame_size):
-        state["clip_index"] += 1
+        state["clip_index"] = 1
         state["clip_started_at"] = datetime.now()
         state["next_frame_time"] = state["clip_started_at"]
         state["frames_written"] = 0
 
-        clip_filename = f"clip_{state['clip_index']:03d}.mp4"
+        clip_filename = "preview.mp4"
         clip_path = os.path.join(state["folder_path"], clip_filename)
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -153,14 +162,23 @@ class ClipManager:
             state["next_frame_time"] = now + self.frame_interval
             print("클립 영상 프레임 보정 한도 초과: 긴 지연 구간을 건너뜁니다.")
 
-    def _should_rotate_clip(self, state):
+    def _get_preview_write_until(self, state, now):
+        if self.max_clip_seconds is None:
+            return now
+
+        clip_deadline = state["clip_started_at"] + timedelta(
+            seconds=self.max_clip_seconds
+        )
+        return min(now, clip_deadline)
+
+    def _should_complete_preview(self, state, now):
         if self.max_clip_seconds is None:
             return False
 
         if state["clip_started_at"] is None:
             return False
 
-        elapsed_seconds = (datetime.now() - state["clip_started_at"]).total_seconds()
+        elapsed_seconds = (now - state["clip_started_at"]).total_seconds()
         return elapsed_seconds >= self.max_clip_seconds
 
     def _save_trajectory_image(self, state):
