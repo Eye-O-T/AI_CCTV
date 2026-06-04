@@ -8,7 +8,8 @@ import os
 import requests
 
 
-DEFAULT_SERVER_URL = "http://127.0.0.1:8001"
+DEFAULT_SERVER_URL = "http://127.0.0.1:8002"
+RESOURCE_ENDPOINT = "/monitor/resources"
 
 
 class ResourceMonitorClient:
@@ -43,7 +44,7 @@ class ResourceMonitorClient:
             서버가 반환한 JSON 딕셔너리를 반환합니다.
         """
 
-        endpoint = f"{self.server_url}/monitor/top"
+        endpoint = f"{self.server_url}{RESOURCE_ENDPOINT}"
         try:
             response = requests.get(endpoint, timeout=self.timeout_seconds)
         except requests.RequestException as error:

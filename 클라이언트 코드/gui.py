@@ -688,11 +688,21 @@ class CCTVMainWindow(QMainWindow):
                     "설정 → 저장 설정에서 위치를 선택하세요."
                 )
 
+    def _build_resource_monitor_url(self, source):
+        parsed = urlparse(str(source))
+        host = parsed.hostname
+        if not host:
+            return None
+        return f"http://{host}:8002"
+
     def open_resource_monitor(self):
         if self.resource_monitor_window is None:
             self.resource_monitor_window = ResourceMonitorWindow(
                 self,
-                storage_path=self.ai_cctv_path or self.storage_root_path
+                storage_path=self.ai_cctv_path or self.storage_root_path,
+                resource_server_url=self._build_resource_monitor_url(
+                    self.video_source
+                )
             )
             self.resource_monitor_window.finished.connect(
                 self.handle_resource_monitor_closed
