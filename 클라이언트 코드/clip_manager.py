@@ -19,11 +19,13 @@ class ClipManager:
         trajectory_min_distance=10,
         trajectory_smoothing_alpha=0.35,
         trajectory_simplify_epsilon=4.0,
+        target_bitrate_kbps=2500,
     ):
         self.base_dir = base_dir
         self.fps = fps if fps and fps > 0 else 30
         self.frame_interval = timedelta(seconds=1.0 / self.fps)
         self.max_clip_seconds = max_clip_seconds
+        self.target_bitrate_kbps = target_bitrate_kbps
         self.disappear_timeout = disappear_timeout
         self.trajectory_sample_interval = max(1, int(trajectory_sample_interval))
         self.trajectory_min_distance = max(0, int(trajectory_min_distance))
@@ -123,6 +125,7 @@ class ClipManager:
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(clip_path, fourcc, self.fps, frame_size)
+        self._apply_writer_profile(writer)
 
         if not writer.isOpened():
             print(f"클립 영상 Writer 생성 실패: {clip_path}")
@@ -132,6 +135,19 @@ class ClipManager:
 
         state["writer"] = writer
         state["clip_path"] = clip_path
+
+        print(
+            f"클립 영상 저장 시작: {clip_path} "
+            f"({frame_size[0]}x{frame_size[1]}, {self.fps:.1f}fps, "
+            f"목표 {self.target_bitrate_kbps}kbps급)"
+        )
+
+    def _apply_writer_profile(self, writer):
+        if writer is None:
+            return
+
+        if hasattr(cv2, "VIDEOWRITER_PROP_QUALITY"):
+            writer.set(cv2.VIDEOWRITER_PROP_QUALITY, 75)
 
     def _close_writer(self, state):
         writer = state.get("writer")
