@@ -20,8 +20,8 @@
 set -e
 
 # --- 사용자 정의 환경 설정 ---
-RESOLUTION_WIDTH=640      # 전송 및 저장할 비디오의 가로 해상도 (640픽셀)
-RESOLUTION_HEIGHT=480     # 전송 및 저장할 비디오의 세로 해상도 (480픽셀)
+RESOLUTION_WIDTH=1920     # 전송 및 저장할 비디오의 가로 해상도 (1920픽셀, 1080p)
+RESOLUTION_HEIGHT=1080    # 전송 및 저장할 비디오의 세로 해상도 (1080픽셀, 1080p)
 FPS=30                    # 초당 프레임 수 (30프레임: 적당한 프레임수)
 BACKUP_DIR="./backups"    # 로컬 녹화 세그먼트 파일이 보관될 폴더 경로
 RTSP_PATH="live"          # 중계 서버가 송출할 RTSP 서비스 식별 경로 (rtsp://IP:8554/live) 192.168.99.200으로 설정해둠.
@@ -124,7 +124,7 @@ gst-launch-1.0 -e \
 # === 각 GStreamer 엘리먼트 라인 한글 기능 설명 ===
 #
 # 1. libcamerasrc : 라즈베리파이의 공식 카메라 하드웨어 인터페이스로부터 원본 프레임을 획득
-# 2. video/x-raw,width=640,height=480,framerate=30/1 : 영상 규격을 가로 640, 세로 480, 초당 30프레임
+# 2. video/x-raw,width=1920,height=1080,framerate=30/1 : 영상 규격을 가로 1920, 세로 1080, 초당 30프레임
 # 3. videoconvert : 카메라 원시 색상 데이터를 압축 인코더 코덱이 이해할 수 있도록 공용 변환 처리
 # 4. x264enc : H.264 압축 코덱
 #      - tune=zerolatency: 인코딩 대기 프레임 누적을 없애 실시간성을 보장
