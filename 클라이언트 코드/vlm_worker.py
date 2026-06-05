@@ -74,7 +74,7 @@ class VLMWorker:
                 print(result)
                 from chat_bot import chat_bot as chatbot
 
-                chatbot.send_msg(result)
+                chatbot.send_msg(f"ID {person_id}\n{result}")
                 
             except Exception as e:
                 print(f"ID {person_id} VLM 분석 실패: {e}")
