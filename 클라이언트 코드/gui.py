@@ -141,7 +141,9 @@ class VideoWorker(QThread):
         if self.use_yolo:
             try:
                 self.loading_ready.emit("YOLO 모델 로딩 중...")
-                self.tracker = PersonTracker(model_path="yolo26s.pt")
+                repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                model_path = os.path.join(repo_root, "yolo26s.pt")
+                self.tracker = PersonTracker(model_path=model_path)
             except Exception as e:
                 self.disable_ai_pipeline(
                     f"YOLO 초기화 실패: CCTV 모드로 전환합니다. ({e})"

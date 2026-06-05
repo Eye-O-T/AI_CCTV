@@ -13,6 +13,10 @@ app = FastAPI(title="AI CCTV RPi API Server")
 # 백업 디렉터리 경로 설정 (사용자 RPi 환경에 맞춰 홈 폴더의 backups를 가리키도록 설정)
 # BACKUP_DIR = os.path.join(os.path.expanduser("~"), "backups")
 BACKUP_DIR = os.path.join(os.path.dirname(__file__), "backups")
+UPS_I2C_BUS = int(os.getenv("AI_CCTV_UPS_I2C_BUS", "1"))
+UPS_I2C_ADDRESS = int(os.getenv("AI_CCTV_UPS_I2C_ADDRESS", "0x17"), 0)
+UPS_BATTERY_REMAINING_LOW_REGISTER = 0x13
+UPS_BATTERY_REMAINING_HIGH_REGISTER = 0x14
 
 DEFAULT_PROCESS_KEYWORDS = (
     "stream_and_record.sh",
@@ -27,9 +31,68 @@ DEFAULT_PROCESS_KEYWORDS = (
 )
 
 
+class UpsBatteryReader:
+    def __init__(
+        self,
+        bus_number=UPS_I2C_BUS,
+        device_address=UPS_I2C_ADDRESS,
+    ):
+        self.bus_number = bus_number
+        self.device_address = device_address
+
+    def read_snapshot(self):
+        try:
+            self._ensure_i2c_device_exists()
+            battery_percent = self._read_battery_remaining_percent()
+            return {
+                "available": True,
+                "battery_remaining_percent": battery_percent,
+                "i2c_bus": self.bus_number,
+                "i2c_address": f"0x{self.device_address:02x}",
+            }
+        except Exception as error:
+            return {
+                "available": False,
+                "battery_remaining_percent": None,
+                "i2c_bus": self.bus_number,
+                "i2c_address": f"0x{self.device_address:02x}",
+                "error": str(error),
+            }
+
+    def _ensure_i2c_device_exists(self):
+        if os.name != "posix":
+            return
+
+        device_path = f"/dev/i2c-{self.bus_number}"
+        if not os.path.exists(device_path):
+            raise FileNotFoundError(
+                f"{device_path} not found. Enable I2C on the Raspberry Pi."
+            )
+
+    def _read_battery_remaining_percent(self):
+        try:
+            from smbus2 import SMBus
+        except ImportError as error:
+            raise ImportError("smbus2 is required to read the UPS HAT over I2C.") from error
+
+        with SMBus(self.bus_number) as bus:
+            low_byte = bus.read_byte_data(
+                self.device_address,
+                UPS_BATTERY_REMAINING_LOW_REGISTER,
+            )
+            high_byte = bus.read_byte_data(
+                self.device_address,
+                UPS_BATTERY_REMAINING_HIGH_REGISTER,
+            )
+
+        value = (high_byte << 8) | low_byte
+        return max(0, min(100, int(value)))
+
+
 class ResourceUsageCollector:
-    def __init__(self, sample_interval_seconds=0.1):
+    def __init__(self, sample_interval_seconds=0.1, ups_reader=None):
         self.sample_interval_seconds = sample_interval_seconds
+        self.ups_reader = ups_reader or UpsBatteryReader()
 
     def collect(self):
         processes = self._collect_target_processes()
@@ -83,6 +146,7 @@ class ResourceUsageCollector:
                 "used_gb": self._bytes_to_gb(disk.used),
                 "free_gb": self._bytes_to_gb(disk.free),
             },
+            "power": self.ups_reader.read_snapshot(),
         }
 
     def _collect_target_processes(self):
