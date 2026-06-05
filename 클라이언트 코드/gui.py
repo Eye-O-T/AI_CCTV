@@ -38,12 +38,6 @@ from clip_manager import ClipManager
 from network_recovery_manager import NetworkRecoveryManager
 
 
-VIDEO_MAX_WIDTH = 1280
-VIDEO_MAX_HEIGHT = 720
-VIDEO_TARGET_FPS = 24
-VIDEO_TARGET_BITRATE_KBPS = 2500
-
-
 class VideoWorker(QThread):
     frame_ready = pyqtSignal(object) # 분석이 끝난 프레임을 GUI 화면에 보내기
     metrics_ready = pyqtSignal(dict) # 현재 객체 수, 추적 중인 사람 수 보내기
@@ -66,12 +60,7 @@ class VideoWorker(QThread):
         self.use_vlm = use_yolo and use_vlm
 
         # 클래스 연결
-        self.stream = VideoStream(
-            source=self.source,
-            max_width=VIDEO_MAX_WIDTH,
-            max_height=VIDEO_MAX_HEIGHT,
-            target_fps=VIDEO_TARGET_FPS,
-        )
+        self.stream = VideoStream(source=self.source)
         self.tracker = None
         self.full_body_checker = FullBodyChecker()
         self.crop_manager = CropManager()
@@ -129,16 +118,14 @@ class VideoWorker(QThread):
             self.recording_manager = RecordingManager(
                 base_dir=self.ai_cctv_path,
                 fps=fps,
-                segment_seconds=self.original_segment_seconds,
-                target_bitrate_kbps=VIDEO_TARGET_BITRATE_KBPS
+                segment_seconds=self.original_segment_seconds
             )
             if self.use_yolo:
                 self.clip_manager = ClipManager(
                     base_dir=self.ai_cctv_path,
                     fps=fps,
                     max_clip_seconds=self.clip_max_seconds,
-                    disappear_timeout=3.0,
-                    target_bitrate_kbps=VIDEO_TARGET_BITRATE_KBPS
+                    disappear_timeout=3.0
                 )
 
         if getattr(self.stream, "is_rtsp", False) and self.ai_cctv_path:
@@ -154,9 +141,7 @@ class VideoWorker(QThread):
         if self.use_yolo:
             try:
                 self.loading_ready.emit("YOLO 모델 로딩 중...")
-                repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                model_path = os.path.join(repo_root, "yolo26s.pt")
-                self.tracker = PersonTracker(model_path=model_path)
+                self.tracker = PersonTracker(model_path="yolo26s.pt")
             except Exception as e:
                 self.disable_ai_pipeline(
                     f"YOLO 초기화 실패: CCTV 모드로 전환합니다. ({e})"
@@ -206,7 +191,7 @@ class VideoWorker(QThread):
             if self.use_yolo and self.tracker is not None:
                 try:
                     # 프레임에서 yolo분석, 객체 추적
-                    persons = self.tracker.track(frame)
+                    persons = self.trackepr.track(frame)
                     clip_frame = frame.copy()
                 except Exception as e:
                     self.disable_ai_pipeline(
