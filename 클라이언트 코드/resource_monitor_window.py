@@ -295,10 +295,12 @@ class ResourceMonitorWindow(QDialog):
         self.smart_cpu_card = ResourceCard("스마트CCTV CPU", "#22c55e")
         self.smart_ram_card = ResourceCard("스마트CCTV RAM", "#38bdf8")
         self.smart_disk_card = ResourceCard("스마트CCTV 저장 공간", "#fb7185")
+        self.smart_battery_card = ResourceCard("UPS Battery", "#facc15")
 
         smart_grid.addWidget(self.smart_cpu_card, 0, 0)
         smart_grid.addWidget(self.smart_ram_card, 0, 1)
         smart_grid.addWidget(self.smart_disk_card, 1, 0, 1, 2)
+        smart_grid.addWidget(self.smart_battery_card, 2, 0, 1, 2)
 
         self.smart_warning_page = QFrame()
         self.smart_warning_page.setStyleSheet(
@@ -468,6 +470,7 @@ class ResourceMonitorWindow(QDialog):
         memory = resource_usage.get("memory", {})
         disk = resource_usage.get("disk", {})
         process = resource_usage.get("process", {})
+        power = resource_usage.get("power", {})
 
         self.smart_cpu_card.update_data(
             cpu.get("total_percent", 0),
@@ -496,6 +499,22 @@ class ResourceMonitorWindow(QDialog):
                 f"대상 경로: {disk.get('path', '-')}"
             ),
         )
+        battery_percent = power.get("battery_remaining_percent")
+        if power.get("available") and battery_percent is not None:
+            self.smart_battery_card.update_data(
+                battery_percent,
+                f"{battery_percent:.0f}%",
+                (
+                    f"I2C bus {power.get('i2c_bus', '-')} · "
+                    f"address {power.get('i2c_address', '-')}"
+                ),
+            )
+        else:
+            self.smart_battery_card.update_data(
+                0,
+                "N/A",
+                power.get("error", "UPS battery status is unavailable."),
+            )
 
         collected_at = resource_usage.get("collected_at", "-")
         self.smart_status_label.setText(
