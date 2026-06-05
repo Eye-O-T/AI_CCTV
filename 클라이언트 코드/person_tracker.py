@@ -49,15 +49,27 @@ class PersonTracker:
         ]
         """
 
-        results = self.model.track(
-            frame,
-            persist=True,
-            tracker=self.tracker_config,
-            verbose=False,
-            imgsz=self.inference_size,
-            conf=self.conf_threshold,
-            classes=self.target_class_ids or None,
-        )
+        try:
+            results = self.model.track(
+                frame,
+                persist=True,
+                tracker=self.tracker_config,
+                verbose=False,
+                imgsz=self.inference_size,
+                conf=self.conf_threshold,
+                classes=self.target_class_ids or None,
+            )
+        except Exception as optimized_error:
+            print(
+                "YOLO 최적화 추론 실패, 기본 추론으로 재시도합니다: "
+                f"{optimized_error}"
+            )
+            results = self.model.track(
+                frame,
+                persist=True,
+                tracker=self.tracker_config,
+                verbose=False
+            )
 
         tracked_persons = []
 
