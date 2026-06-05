@@ -6,10 +6,13 @@ from rtsp_receiver import RTSPReceiver
 
 
 class VideoStream:
-    def __init__(self, source=0):
+    def __init__(self, source=0, max_width=1280, max_height=720, target_fps=24):
         self.source = source
         self.cap = None
         self.receiver = None
+        self.max_width = max_width
+        self.max_height = max_height
+        self.target_fps = target_fps
         
         # 입력 소스가 rtsp:// 로 시작하는 문자열인지 확인
         self.is_rtsp = isinstance(self.source, str) and self.source.lower().startswith("rtsp://")
@@ -28,6 +31,9 @@ class VideoStream:
             if not self.cap.isOpened():
                 print("영상 스트림 연결 실패")
                 return False
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.max_width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.max_height)
+            self.cap.set(cv2.CAP_PROP_FPS, self.target_fps)
             print("영상 스트림 연결 성공")
             return True
 
@@ -65,11 +71,14 @@ class VideoStream:
                 return False, None
             
             self.last_read_frame_time = current_frame_time
-            return True, frame
+            return True, self._resize_to_profile(frame)
         else:
             if self.cap is None:
                 return False, None
-            return self.cap.read()
+            ret, frame = self.cap.read()
+            if not ret:
+                return False, None
+            return True, self._resize_to_profile(frame)
 
     def get_fps(self):
         if self.is_rtsp:
@@ -80,15 +89,15 @@ class VideoStream:
                     if self.receiver.cap is not None:
                         fps = self.receiver.cap.get(cv2.CAP_PROP_FPS)
             if fps <= 0:
-                return 30
-            return fps
+                return self.target_fps
+            return min(fps, self.target_fps)
         else:
             if self.cap is None:
-                return 30
+                return self.target_fps
             fps = self.cap.get(cv2.CAP_PROP_FPS)
             if fps <= 0:
-                return 30
-            return fps
+                return self.target_fps
+            return min(fps, self.target_fps)
 
     def get_frame_size(self):
         if self.is_rtsp:
@@ -104,7 +113,35 @@ class VideoStream:
                 return 640, 480
             width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            return width, height
+            return self._scaled_size(width, height)
+
+    def _resize_to_profile(self, frame):
+        height, width = frame.shape[:2]
+        scaled_width, scaled_height = self._scaled_size(width, height)
+
+        if scaled_width == width and scaled_height == height:
+            return frame
+
+        return cv2.resize(
+            frame,
+            (scaled_width, scaled_height),
+            interpolation=cv2.INTER_AREA,
+        )
+
+    def _scaled_size(self, width, height):
+        if width <= 0 or height <= 0:
+            return self.max_width, self.max_height
+
+        scale = min(self.max_width / width, self.max_height / height, 1.0)
+        scaled_width = int(width * scale)
+        scaled_height = int(height * scale)
+
+        if scaled_width % 2 == 1:
+            scaled_width -= 1
+        if scaled_height % 2 == 1:
+            scaled_height -= 1
+
+        return max(2, scaled_width), max(2, scaled_height)
 
     def pop_connection_events(self):
         if self.is_rtsp and self.receiver is not None:

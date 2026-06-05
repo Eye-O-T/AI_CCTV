@@ -11,12 +11,14 @@ class RecordingManager:
         base_dir,
         fps=30,
         frame_size=None,
-        segment_seconds=60 # 몇초단위로 영상 저장할건지
+        segment_seconds=60, # 몇초단위로 영상 저장할건지
+        target_bitrate_kbps=2500
     ):
         self.base_dir = base_dir # 녹화본 저장 경로
         self.fps = fps
         self.frame_size = frame_size
         self.segment_seconds = segment_seconds
+        self.target_bitrate_kbps = target_bitrate_kbps
 
         self.writer = None # 실제로 mp4 파일에 프레임을 쓰는 객체
 
@@ -62,6 +64,7 @@ class RecordingManager:
             self.fps, # FPS
             self.frame_size # 프레임 크기
         )
+        self._apply_writer_profile(self.writer)
 
         # VideoWriter가 제대로 열리지 않았으면 실패 처리. 성공하면 함수 True반환
         if not self.writer.isOpened():
@@ -69,9 +72,20 @@ class RecordingManager:
             self.writer = None
             return False
 
-        print(f"원본 영상 저장 시작: {self.temp_save_path}")
+        print(
+            f"원본 영상 저장 시작: {self.temp_save_path} "
+            f"({self.frame_size[0]}x{self.frame_size[1]}, {self.fps:.1f}fps, "
+            f"목표 {self.target_bitrate_kbps}kbps급)"
+        )
 
         return True
+
+    def _apply_writer_profile(self, writer):
+        if writer is None:
+            return
+
+        if hasattr(cv2, "VIDEOWRITER_PROP_QUALITY"):
+            writer.set(cv2.VIDEOWRITER_PROP_QUALITY, 75)
 
     # 프레임 하나를 영상파일에 저장하는 함수
     # 메인 루프에서 매 프레임마다 호출. 프레임 없으면 저장할 게 없으니 종료

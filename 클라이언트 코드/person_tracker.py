@@ -14,6 +14,7 @@ class PersonTracker:
         reid_timeout=3.0,
         reid_iou_threshold=0.18,
         reid_center_distance_ratio=0.65,
+        inference_size=640,
     ):
         from ultralytics import YOLO
 
@@ -21,6 +22,12 @@ class PersonTracker:
         self.target_class = target_class
         self.conf_threshold = conf_threshold
         self.tracker_config = tracker_config
+        self.inference_size = inference_size
+        self.target_class_ids = [
+            class_id
+            for class_id, class_name in self.model.names.items()
+            if class_name == self.target_class
+        ]
         self.id_mapper = StablePersonIdMapper(
             reid_timeout=reid_timeout,
             iou_threshold=reid_iou_threshold,
@@ -42,12 +49,27 @@ class PersonTracker:
         ]
         """
 
-        results = self.model.track(
-            frame,
-            persist=True,
-            tracker=self.tracker_config,
-            verbose=False
-        )
+        try:
+            results = self.model.track(
+                frame,
+                persist=True,
+                tracker=self.tracker_config,
+                verbose=False,
+                imgsz=self.inference_size,
+                conf=self.conf_threshold,
+                classes=self.target_class_ids or None,
+            )
+        except Exception as optimized_error:
+            print(
+                "YOLO 최적화 추론 실패, 기본 추론으로 재시도합니다: "
+                f"{optimized_error}"
+            )
+            results = self.model.track(
+                frame,
+                persist=True,
+                tracker=self.tracker_config,
+                verbose=False
+            )
 
         tracked_persons = []
 
