@@ -1,8 +1,8 @@
 # gui.py
 import os
 
-os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = r"C:\qt_plugins"
-os.environ["QT_PLUGIN_PATH"] = r"C:\qt_plugins"
+#os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = r"C:\qt_plugins"
+#os.environ["QT_PLUGIN_PATH"] = r"C:\qt_plugins"
 
 import sys
 import cv2
