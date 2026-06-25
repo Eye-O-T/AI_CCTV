@@ -4,7 +4,7 @@ import sys
 from PyQt5.QtCore import QLibraryInfo
 from PyQt5.QtWidgets import QApplication
 
-from gui import CCTVMainWindow
+from ui.gui import CCTVMainWindow
 
 
 def main():

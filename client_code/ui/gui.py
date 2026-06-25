@@ -14,8 +14,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QImage, QPixmap
-from settings_window import SettingsWindow
-from resource_monitor_window import ResourceMonitorWindow
+from ui.settings_window import SettingsWindow
+from ui.resource_monitor_window import ResourceMonitorWindow
 from video_worker import VideoWorker
 
 
