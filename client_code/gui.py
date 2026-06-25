@@ -1,10 +1,10 @@
 # gui.py
 import os
-
-#os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = r"C:\qt_plugins"
-#os.environ["QT_PLUGIN_PATH"] = r"C:\qt_plugins"
-
 import sys
+from PyQt5.QtCore import QLibraryInfo
+
+# 환경 변수 설정
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = QLibraryInfo.location(QLibraryInfo.PluginsPath)
 import cv2
 import time
 import threading
