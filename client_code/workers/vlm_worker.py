@@ -45,7 +45,7 @@ class VLMWorker:
     def _run(self):
         try:
             print("VLM 모델 로딩 중...")
-            from vlm_person_analyzer_Qwen_test import PersonAnalyzer
+            from vlm.person_analyzer import PersonAnalyzer
 
             self.analyzer = PersonAnalyzer()
             print("VLM 모델 로딩 완료")

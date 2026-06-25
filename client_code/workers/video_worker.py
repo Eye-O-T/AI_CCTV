@@ -7,15 +7,15 @@ from urllib.parse import urlparse
 import cv2
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from clip_manager import ClipManager
-from crop_manager import CropManager
-from full_body_checker import FullBodyChecker
-from network_recovery_manager import NetworkRecoveryManager
-from person_state_manager import PersonStateManager
-from person_tracker import PersonTracker
-from recording_manager import RecordingManager
-from video_stream import VideoStream
-from vlm_worker import VLMWorker
+from detection.full_body_checker import FullBodyChecker
+from detection.person_state_manager import PersonStateManager
+from detection.person_tracker import PersonTracker
+from recovery.network_recovery_manager import NetworkRecoveryManager
+from storage.clip_manager import ClipManager
+from storage.crop_manager import CropManager
+from storage.recording_manager import RecordingManager
+from video.video_stream import VideoStream
+from workers.vlm_worker import VLMWorker
 
 
 class VideoWorker(QThread):

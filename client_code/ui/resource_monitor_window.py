@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from resource_monitor_client import ResourceMonitorClient
+from resource_monitor.resource_monitor_client import ResourceMonitorClient
 
 
 class SparklineChart(QWidget):
