@@ -2,7 +2,7 @@
 
 import cv2
 import time
-from rtsp_receiver import RTSPReceiver
+from video.rtsp_receiver import RTSPReceiver
 
 
 class VideoStream:
