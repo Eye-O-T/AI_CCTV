@@ -1,6 +1,6 @@
 # PC CCTV 백엔드
 
-현재 SQLite 기반 최초 가입 필요 여부 조회·최초 회원가입·로그인·로그아웃·토큰 갱신과 `GET /health`가 구현되어 있다. 인증 단계의 `users`, `server_runs`만 생성한다. PyQt 인증 화면과 서버 자동 시작·종료는 연결했으며 카메라·이벤트 API는 미구현이다. 클라이언트 실행·연동 검증은 [클라이언트 README](../README.md)를 참고한다.
+현재 SQLite 기반 최초 가입 필요 여부 조회·최초 회원가입·로그인·로그아웃·토큰 갱신과 `GET /health`가 구현되어 있다. `users`, `server_runs`와 카메라 등록용 `cameras` 모델이 등록되어 서버 시작 시 없는 테이블을 생성한다. Camera 모델과 Pydantic 스키마까지 구현했으며 카메라 Repository·Service·Router는 아직 없다. PyQt 인증 화면과 서버 자동 시작·종료는 연결했으며 카메라·이벤트 API는 미구현이다. 클라이언트 실행·연동 검증은 [클라이언트 README](../README.md)를 참고한다.
 
 ```text
 backend/
@@ -20,7 +20,7 @@ backend/
 ## 구현 기준
 
 - [백엔드 스키마 및 제약사항](../docs/BACKEND_SCHEMA.md)을 참고한다.
-- API 구현·클라이언트 연동·검증 전에는 [통합 API 명세서](../docs/API_SPEC.md)를 읽는다. 인증 API 계약과 구현 전 카메라 관리 API 계약이 정리되어 있다. 다음 단계는 카메라 모델·스키마 및 등록·조회·수정 API 구현·검증이며, PyQt 연결은 그 이후에 진행한다. 이벤트 명세도 같은 파일 하단에 추가한다.
+- API 구현·클라이언트 연동·검증 전에는 [통합 API 명세서](../docs/API_SPEC.md)를 읽는다. 인증 API 계약과 구현 전 카메라 관리 API 계약이 정리되어 있다. 다음 단계는 카메라 Repository·Service·Router 및 등록·조회·수정 API 구현·검증이며, PyQt 연결은 그 이후에 진행한다. 이벤트 명세도 같은 파일 하단에 추가한다.
 - 요청 처리는 Router → Service → Repository 순서로 나눈다.
 - DB 모델과 API 요청·응답 모델을 분리한다.
 - 백엔드는 PyQt 화면이나 YOLO·CNN 모델을 import하지 않는다.
@@ -112,5 +112,16 @@ backend/
 ## 남은 범위
 
 - 입력 최대 길이·아이디 문자 정책은 미확정이므로 최소 4자만 적용한다. 아이디는 대소문자를 구분하며 입력을 trim·정규화하지 않는다.
-- 비밀번호 변경, 카메라·이벤트 기능은 미구현이다.
+- 비밀번호 변경, 카메라 관리 API·이벤트 기능은 미구현이다. 카메라는 모델·스키마 단계까지 구현했다.
 - PyQt는 토큰을 메모리에만 보관하며 영상 작업 종료 후 로그아웃한다. 실제 카메라·GPU 작업 종료 검증은 클라이언트 README의 제한 사항을 참고한다.
+
+
+## 카메라 모델·스키마 구현 (2026-10-07)
+
+- `models/camera.py`: 카메라 등록 모델, 종류별 CHECK, 소스 UNIQUE, UTC 시각과 사용 여부 기본값을 구현했다. 다음 서버 시작에서 기존 `create_all`이 없는 cameras 테이블을 생성한다. 운영 DB를 직접 열거나 초기화하지 않았다.
+- `schemas/camera.py`: CameraCreate, CameraUpdate, CameraSummary, CameraResponse, CameraListResponse를 구현했다. 입력 타입·주소·종류 조합·읽기 전용 필드를 검증하고, 목록에서는 접속 주소를 제외한다.
+- PATCH는 `model_dump(exclude_unset=True)`로 전달된 필드만 추출한다. 이후 Service는 기존 등록 정보에 병합한 값을 `CameraCreate.model_validate(...)`로 검증해야 한다. 종류 변경 금지는 CameraUpdate의 필드 제한이며 직접 SQL 변경까지 차단하는 트리거는 추가하지 않았다.
+- 이름·주소 정리는 스키마에서 수행한다. DB는 필수값·종류 조합·이름 길이·장치 번호·사용 여부·중복을 보장하며 URL 형식 검증은 DTO 책임이다.
+- 오류 문자열에서 원본 입력을 숨기지만 Pydantic의 `ValidationError.errors()`에는 기본적으로 input이 포함될 수 있다. 향후 Router 연결에서도 기존 공통 오류 처리처럼 원본 오류를 그대로 응답·로그에 노출하지 않아야 한다.
+- `tests/test_camera.py`는 메모리 SQLite로 스키마 입력 경계, PATCH 생략/null, URL 보존·거부, DB CHECK·UNIQUE, UTC 시각, 목록/상세 응답을 검증한다. 실제 API와 PyQt·카메라 실행 검증은 후속 범위다.
+- 검증 결과: 카메라 테스트 9개와 기존 인증 회귀 테스트 18개, 총 27개 통과. 기존 Starlette/httpx 폐기 예정 경고는 유지된다. 카메라 API 엔드포인트는 아직 없으므로 HTTP 등록·조회 검증 결과가 아니다.

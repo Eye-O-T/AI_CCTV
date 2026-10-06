@@ -1,6 +1,7 @@
-"""인증 단계에서 사용하는 두 테이블만 등록한다."""
+"""구현된 인증·카메라 테이블을 등록한다."""
 
+from .camera import Camera
 from .server_run import ServerRun
 from .user import User
 
-__all__ = ["ServerRun", "User"]
+__all__ = ["Camera", "ServerRun", "User"]

@@ -88,7 +88,7 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(response.json()["error"]["code"], "SIGNUP_CLOSED")
         with closing(sqlite3.connect(self.db_path)) as db:
             names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            self.assertEqual(names, {"users", "server_runs", "sqlite_sequence"})
+            self.assertEqual(names, {"users", "server_runs", "cameras", "sqlite_sequence"})
             hashed, timestamp = db.execute("SELECT password_hash, created_at FROM users").fetchone()
             self.assertTrue(hashed.startswith("$argon2id$"))
             self.assertNotIn(SIGNUP["password"], hashed)
