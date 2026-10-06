@@ -1,1 +1,6 @@
-"""DB 테이블·컬럼·관계를 정의할 SQLAlchemy 모델. Spring Entity 역할."""
+"""인증 단계에서 사용하는 두 테이블만 등록한다."""
+
+from .server_run import ServerRun
+from .user import User
+
+__all__ = ["ServerRun", "User"]

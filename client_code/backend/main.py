@@ -1,1 +1,71 @@
-"""FastAPI 앱 생성, 라우터 등록 및 시작·종료 처리를 구현할 진입점."""
+"""FastAPI 앱과 인증 백엔드의 시작·종료 진입점."""
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from .database import Base, DEFAULT_DB_PATH, create_database, single_instance
+from .errors import APIError
+from .routers.auth import router
+from .services.auth_service import AuthService
+from .services.server_run_service import ServerRunService
+
+
+def create_app(db_path: Path | None = None) -> FastAPI:
+    path = (db_path or DEFAULT_DB_PATH).resolve()
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        with single_instance(path):
+            engine, factory = create_database(path)
+            run_id = None
+            auth = None
+            runs = ServerRunService(factory)
+            try:
+                Base.metadata.create_all(engine)
+                run_id = runs.start()
+                auth = AuthService(factory, run_id)
+                application.state.auth_service = auth
+                yield
+            finally:
+                if auth is not None:
+                    auth.close()
+                try:
+                    if run_id is not None:
+                        runs.stop(run_id)
+                finally:
+                    engine.dispose()
+
+    application = FastAPI(title="AI CCTV Backend", lifespan=lifespan)
+
+    @application.exception_handler(APIError)
+    async def api_error(_: Request, exc: APIError):
+        return JSONResponse(status_code=exc.status, content=exc.body())
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_error(_: Request, exc: RequestValidationError):
+        # 오류 input/ctx에는 비밀번호가 포함될 수 있어 반환하지 않는다.
+        location = exc.errors()[0].get("loc", ()) if exc.errors() else ()
+        allowed = {"username", "password", "password_confirm", "refresh_token"}
+        field = next((item for item in location if isinstance(item, str) and item in allowed), None)
+        error = APIError(422, "VALIDATION_ERROR", "요청 입력을 확인해 주세요.", field)
+        return JSONResponse(status_code=422, content=error.body())
+
+    @application.exception_handler(Exception)
+    async def internal_error(_: Request, exc: Exception):
+        error = APIError(500, "INTERNAL_SERVER_ERROR", "서버 내부 오류가 발생했습니다.")
+        return JSONResponse(status_code=500, content=error.body())
+
+    application.include_router(router)
+
+    @application.get("/health")
+    def health():
+        return {"status": "ok"}
+
+    return application
+
+
+app = create_app()

@@ -8,3 +8,6 @@ __pycache__/
 *.jpg
 *.mp4
 *.pt
+
+# Backend runtime state (accounts, execution history and process lock)
+client_code/backend/data/
