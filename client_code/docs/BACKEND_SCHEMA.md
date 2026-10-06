@@ -93,6 +93,10 @@
 
 ### 제약 및 동작
 
+- 카메라 관리 API의 상세 계약은 [통합 API 명세서의 카메라 API 절](API_SPEC.md#카메라-api-설계-완료--구현-전)을 따른다. 모델·API는 아직 미구현이다.
+- `name`은 앞뒤 공백 제거 후 1~100자이며 중복을 허용한다. SQLite에서도 길이 CHECK를 적용한다.
+- `camera_type`은 등록 후 변경하지 않는다. `webcam_index`는 0 이상이며 UNIQUE, `rtsp_url`도 UNIQUE로 제한한다. NULL은 여러 행에서 허용하며 비활성 등록도 중복 제약에 포함한다.
+- 주소는 앞뒤 공백만 제거해 저장한다. RTSP 주소는 rtsp/rtsps, 장치 API 주소는 http/https를 허용한다. URL userinfo는 거부하며 자격증명을 URL에 저장하지 않는다. 주소 검증·정확한 문자열 중복 기준은 API 명세를 따른다.
 - `webcam`: `webcam_index` 필수, RTSP·엣지노드 API 주소는 NULL.
 - `edge_node`: `rtsp_url` 필수, `webcam_index`는 NULL. 복구·장치 API 사용 시 `edge_api_base_url`도 필수.
 - RTSP와 API 주소를 구분한다. 호스트·포트가 반드시 같다고 가정하지 않는다.
