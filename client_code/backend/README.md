@@ -1,6 +1,6 @@
 # PC CCTV 백엔드
 
-현재 SQLite 기반 최초 회원가입·로그인·로그아웃·토큰 갱신과 `GET /health`가 구현되어 있다. 인증 단계의 `users`, `server_runs`만 생성하며 카메라·이벤트 API와 PyQt 연결은 구현하지 않았다.
+현재 SQLite 기반 최초 가입 필요 여부 조회·최초 회원가입·로그인·로그아웃·토큰 갱신과 `GET /health`가 구현되어 있다. 인증 단계의 `users`, `server_runs`만 생성하며 카메라·이벤트 API와 PyQt 연결은 구현하지 않았다.
 
 ```text
 backend/
@@ -61,10 +61,11 @@ backend/
 
 ## Postman 확인 순서
 
-기본 URL: `http://127.0.0.1:8000`. Body는 `raw / JSON`으로 설정한다. 네 API는 Access 인증 헤더가 필수가 아니다. 요청·응답 전체 계약은 [통합 API 명세서](../docs/API_SPEC.md)를 따른다.
+기본 URL: `http://127.0.0.1:8000`. POST 요청의 Body는 `raw / JSON`으로 설정한다. 다섯 API는 Access 인증 헤더가 필수가 아니다. 요청·응답 전체 계약은 [통합 API 명세서](../docs/API_SPEC.md)를 따른다.
 
 | 순서 | 요청 | 확인 |
 | --- | --- | --- |
+| 0 | GET `/api/v1/auth/signup-status` (본문 없음) | 관리자 없으면 signup_required=true, 있으면 false |
 | 1 | POST `/api/v1/auth/signup` | 최초 201, 재요청 409 |
 | 2 | POST `/api/v1/auth/login` | 200, Access·Refresh 두 토큰 발급 |
 | 3 | POST `/api/v1/auth/refresh` | 로그인 응답의 Refresh 전달, 새 두 토큰 저장 |
@@ -104,7 +105,7 @@ backend/
 
 - 테스트는 `tests/test_auth.py`에 있으며 임시 DB를 사용한다. 실제 관리자 계정을 만들거나 운영 DB를 초기화하지 않는다.
 - 테스트 의존성은 `tests/requirements.txt`에 선언했다. 현재 환경의 httpx 0.28.1을 재사용했다.
-- 2026-10-06: 16개 테스트 통과. 입력 검증·민감정보 미노출·가입 롤백·동시 가입·동시 갱신·로그아웃과 갱신 경합·토큰 claim 검증·최종 만료·다른 세션 보존·중복 프로세스 방지·재시작·실행 이력 복구를 확인했다.
+- 최초 가입 필요 여부 조회는 임시 DB에서 가입 전·후 및 서버 재시작 후 응답, 캐시 금지, DB 오류를 가입 필요로 오인하지 않는 동작을 검증한다. 기존 인증 회귀 검증과 함께 총 18개 테스트를 사용한다.
 - 실제 로컬 Uvicorn HTTP로 `/health`, `/docs` HTML, `/openapi.json`, 가입→로그인→갱신→로그아웃→갱신 거부를 확인했다. 브라우저 Swagger 화면 조작이나 Postman 직접 조작, PyQt·카메라 실행을 검증한 것은 아니다.
 - `pip check` 통과. 기존 Starlette는 테스트의 httpx 사용에 폐기 예정 경고를 내지만 테스트는 통과한다. 이 경고를 없애기 위한 환경 업그레이드는 하지 않았다.
 

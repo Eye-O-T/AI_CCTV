@@ -10,7 +10,7 @@ from sqlalchemy import text
 
 from ..errors import APIError
 from ..repositories.user_repository import UserRepository
-from ..schemas.auth import LoginResponse, TokenResponse, UserResponse
+from ..schemas.auth import LoginResponse, SignupStatusResponse, TokenResponse, UserResponse
 from ..security import TokenSigner, hash_password, refresh_digest, verify_password
 
 
@@ -39,6 +39,10 @@ class AuthService:
         self._closed = False
         # 없는 아이디도 비밀번호 검증 비용을 거치게 한다.
         self._dummy_hash = hash_password(secrets.token_urlsafe(32))
+
+    def signup_status(self) -> SignupStatusResponse:
+        with self.session_factory() as db:
+            return SignupStatusResponse(signup_required=not self.repository.exists(db))
 
     def signup(self, username: str, password: str, confirmation: str) -> UserResponse:
         if password != confirmation:

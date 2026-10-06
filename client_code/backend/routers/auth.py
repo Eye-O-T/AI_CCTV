@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Response
 from ..dependencies import get_auth_service
 from ..schemas.auth import (
     ErrorResponse, LoginRequest, LoginResponse, RefreshRequest,
-    SignupRequest, TokenResponse, UserResponse,
+    SignupRequest, SignupStatusResponse, TokenResponse, UserResponse,
 )
 from ..services.auth_service import AuthService
 
@@ -15,6 +15,13 @@ router = APIRouter(
     responses={422: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
 Auth = Annotated[AuthService, Depends(get_auth_service)]
+
+
+@router.get("/signup-status", response_model=SignupStatusResponse,
+            summary="최초 관리자 가입 필요 여부 조회")
+def signup_status(service: Auth, response: Response) -> SignupStatusResponse:
+    response.headers["Cache-Control"] = "no-store"
+    return service.signup_status()
 
 
 @router.post("/signup", status_code=201, response_model=UserResponse,

@@ -60,6 +60,27 @@ class AuthTests(unittest.TestCase):
     def protected(self, token):
         return self.client.get("/_test/protected", headers={"Authorization": "Bearer " + token})
 
+    def test_signup_status_before_and_after_signup(self):
+        response = self.client.get(PREFIX + "/signup-status")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"signup_required": True})
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        self.signup()
+        response = self.client.get(PREFIX + "/signup-status")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"signup_required": False})
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        # 먼저 받은 true는 가입 권한 예약이 아니며 서버는 가입 시 다시 검증한다.
+        self.assertEqual(self.client.post(PREFIX + "/signup", json=SIGNUP).status_code, 409)
+
+    def test_signup_status_database_failure_is_not_signup_required(self):
+        with patch.object(self.service.repository, "exists", side_effect=RuntimeError("private DB details")):
+            response = self.client.get(PREFIX + "/signup-status")
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["error"]["code"], "INTERNAL_SERVER_ERROR")
+        self.assertNotIn("signup_required", response.json())
+        self.assertNotIn("private DB details", response.text)
+
     def test_signup_storage_and_closed_signup(self):
         self.assertEqual(self.signup(), {"user_id": 1, "username": "admin"})
         response = self.client.post(PREFIX + "/signup", json={**SIGNUP, "username": "other"})
@@ -244,7 +265,7 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
         self.assertEqual(self.client.get("/docs").status_code, 200)
         paths = create_app(self.db_path).openapi()["paths"]
-        self.assertEqual(set(paths), {"/health", *(PREFIX + "/" + name for name in ("signup", "login", "logout", "refresh"))})
+        self.assertEqual(set(paths), {"/health", *(PREFIX + "/" + name for name in ("signup-status", "signup", "login", "logout", "refresh"))})
         self.assertEqual(DEFAULT_DB_PATH, Path(__file__).resolve().parents[1] / "data" / "ai_cctv.db")
 
 
@@ -265,6 +286,7 @@ class LifecycleTests(unittest.TestCase):
                 db.commit()
             second_app = create_app(path)
             with TestClient(second_app) as client:
+                self.assertEqual(client.get(PREFIX + "/signup-status").json(), {"signup_required": False})
                 self.assertGreater(second_app.state.auth_service.run_id, first_run)
                 self.assertEqual(client.post(PREFIX + "/refresh", json={"refresh_token": tokens["refresh_token"]}).status_code, 401)
                 with self.assertRaises(APIError):
@@ -293,7 +315,9 @@ class LifecycleTests(unittest.TestCase):
                         self.assertEqual(client.get("/health").status_code, 200)
                         self.assertIn("swagger-ui", client.get("/docs").text)
                         self.assertIn(PREFIX + "/login", client.get("/openapi.json").json()["paths"])
+                        self.assertEqual(client.get(PREFIX + "/signup-status").json(), {"signup_required": True})
                         self.assertEqual(client.post(PREFIX + "/signup", json=SIGNUP).status_code, 201)
+                        self.assertEqual(client.get(PREFIX + "/signup-status").json(), {"signup_required": False})
                         tokens = client.post(PREFIX + "/login", json=LOGIN).json()
                         refreshed = client.post(PREFIX + "/refresh", json={"refresh_token": tokens["refresh_token"]})
                         self.assertEqual(refreshed.status_code, 200)

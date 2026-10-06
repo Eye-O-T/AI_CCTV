@@ -10,6 +10,10 @@ Credential = Annotated[str, StringConstraints(strict=True, min_length=4)]
 Token = Annotated[str, StringConstraints(strict=True, min_length=1)]
 
 
+class SignupStatusResponse(BaseModel):
+    signup_required: bool
+
+
 class SignupRequest(BaseModel):
     username: Credential
     password: Credential = Field(repr=False, json_schema_extra={"writeOnly": True})
