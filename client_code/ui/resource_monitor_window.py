@@ -533,7 +533,11 @@ class ResourceMonitorWindow(QDialog):
         )
 
     def handle_smart_resource_finished(self):
+        if self.remote_worker is not None:
+            self.remote_worker.deleteLater()
         self.remote_worker = None
+        if getattr(self, "_closing", False):
+            self.done(self._close_result)
 
     def show_smart_resource_cards(self):
         self.smart_content_stack.setCurrentIndex(0)
@@ -757,10 +761,22 @@ class ResourceMonitorWindow(QDialog):
             "detail": f"최고 온도 센서: {max_name}",
         }
 
-    def closeEvent(self, event):
+    def done(self, result):
         self.timer.stop()
         if self.remote_worker is not None and self.remote_worker.isRunning():
-            self.remote_worker.quit()
-            self.remote_worker.wait(4000)
+            self._closing = True
+            self._close_result = result
+            self.setEnabled(False)
+            return
         self.cpu_utility_counter.close()
-        event.accept()
+        super().done(result)
+
+    def reject(self):
+        self.done(QDialog.Rejected)
+
+    def closeEvent(self, event):
+        self.done(QDialog.Rejected)
+        if self.remote_worker is not None and self.remote_worker.isRunning():
+            event.ignore()
+        else:
+            event.accept()

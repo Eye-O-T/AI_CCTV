@@ -151,10 +151,12 @@ class VideoStream:
     def release(self):
         if self.is_rtsp:
             if self.receiver is not None:
-                self.receiver.stop()
+                if not self.receiver.stop():
+                    return False
                 self.receiver = None
         else:
             if self.cap is not None:
                 self.cap.release()
                 self.cap = None
+        return True
 

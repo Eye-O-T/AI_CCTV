@@ -4,7 +4,7 @@ import sys
 from PyQt5.QtCore import QLibraryInfo
 from PyQt5.QtWidgets import QApplication
 
-from ui.gui import CCTVMainWindow
+from app_controller import AppController
 
 
 def main():
@@ -13,8 +13,9 @@ def main():
     )
 
     app = QApplication(sys.argv)
-    window = CCTVMainWindow()
-    window.show()
+    app.setQuitOnLastWindowClosed(False)
+    controller = AppController()
+    controller.start()
     return app.exec_()
 
 

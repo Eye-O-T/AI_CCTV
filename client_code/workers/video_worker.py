@@ -52,6 +52,9 @@ class VideoWorker(QThread):
         self.clip_manager = None
         self.recovery_manager = None
         self.recovery_lock = threading.Lock()
+        self.recovery_threads = []
+        self.cleanup_ok = False
+        self.cleanup_errors = []
 
         # vlm켜져있을때만 vlmworker만듦
         self.vlm_worker = None
@@ -64,8 +67,7 @@ class VideoWorker(QThread):
         self.tracker = None
 
         if self.vlm_worker is not None:
-            self.vlm_worker.stop()
-            self.vlm_worker = None
+            self.vlm_worker.request_stop()
 
         if self.clip_manager is not None:
             self.clip_manager.finish_all()
@@ -80,6 +82,17 @@ class VideoWorker(QThread):
         })
 
     def run(self):
+        try:
+            self._run_video()
+        except Exception:
+            self.event_ready.emit({"type": "error", "message": "영상 처리 중 오류가 발생했습니다."})
+        finally:
+            self.running = False
+            self._cleanup()
+
+    def _run_video(self):
+        if not self.running:
+            return
         self.loading_ready.emit("영상 스트림 연결 중...")
 
         # 스트림 열기
@@ -117,7 +130,7 @@ class VideoWorker(QThread):
             )
 
         # vlm 켜져있을때만 vlmworker실행
-        if self.use_yolo:
+        if self.running and self.use_yolo:
             try:
                 self.loading_ready.emit("YOLO 모델 로딩 중...")
                 self.tracker = PersonTracker(model_path="yolo26s.pt")
@@ -126,7 +139,7 @@ class VideoWorker(QThread):
                     f"YOLO 초기화 실패: CCTV 모드로 전환합니다. ({e})"
                 )
 
-        if self.use_yolo and self.use_vlm and self.vlm_worker is not None:
+        if self.running and self.use_yolo and self.use_vlm and self.vlm_worker is not None:
             self.loading_ready.emit("VLM 모델 로딩 중...")
             self.vlm_worker.start()
 
@@ -317,17 +330,33 @@ class VideoWorker(QThread):
             # CCTVMainWindow.update_frame()에서 이 프레임 받아서 송출
             self.frame_ready.emit(frame)
 
-        # 반복문 종료시 실행(stop누르면 vlmworker종료, 녹화 종료, 스트림 해제)
-        if self.use_yolo and self.use_vlm and self.vlm_worker is not None:
-            self.vlm_worker.stop()
-
+    def _cleanup(self):
+        # 이 메서드는 영상 작업 스레드에서 실행하므로 GUI를 기다리게 하지 않는다.
+        # 각각의 정리는 독립적으로 시도하여 하나의 예외가 나머지 해제를 막지 않는다.
+        actions = []
+        if self.vlm_worker is not None:
+            self.vlm_worker.request_stop()
         if self.recording_manager is not None:
-            self.recording_manager.stop_recording()
-
+            actions.append(self.recording_manager.stop_recording)
         if self.clip_manager is not None:
-            self.clip_manager.finish_all()
-
-        self.stream.release()
+            actions.append(self.clip_manager.finish_all)
+        for action in actions:
+            try:
+                action()
+            except Exception:
+                self.cleanup_errors.append("녹화 또는 클립 마무리 실패")
+        try:
+            while not self.stream.release():
+                time.sleep(0.05)
+        except Exception:
+            self.cleanup_errors.append("영상 스트림 해제 실패")
+        if self.vlm_worker is not None:
+            while not self.vlm_worker.stop(timeout=0.2):
+                pass
+        for thread in self.recovery_threads:
+            while thread.is_alive():
+                thread.join(timeout=0.2)
+        self.cleanup_ok = not self.cleanup_errors
 
     def _build_recovery_url(self, source):
         parsed = urlparse(source)
@@ -337,6 +366,8 @@ class VideoWorker(QThread):
         return f"http://{host}:8002/recover"
 
     def handle_rtsp_connection_events(self):
+        if not self.running:
+            return
         for event in self.stream.pop_connection_events():
             event_type = event.get("type")
 
@@ -377,6 +408,8 @@ class VideoWorker(QThread):
                         args=(event,),
                         daemon=True,
                     )
+                    self.recovery_threads = [item for item in self.recovery_threads if item.is_alive()]
+                    self.recovery_threads.append(thread)
                     thread.start()
 
     def _run_recovery_request(self, event):
@@ -384,6 +417,8 @@ class VideoWorker(QThread):
             return
 
         with self.recovery_lock:
+            if not self.running:
+                return
             self.recovery_manager.record_failure(
                 event.get("failure_start_time")
             )
@@ -419,5 +454,9 @@ class VideoWorker(QThread):
             })
 
     def stop(self):
-        self.running = False # while 종료 요청
-        self.wait() #  VideoWorker 스레드가 완전히 끝날 때까지 기다림
+        self.request_stop()
+
+    def request_stop(self):
+        self.running = False
+        if self.vlm_worker is not None:
+            self.vlm_worker.request_stop()

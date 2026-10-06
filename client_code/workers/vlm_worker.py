@@ -44,6 +44,13 @@ class VLMWorker:
 
     def _run(self):
         try:
+            self._analyze_loop()
+        finally:
+            self.running = False
+            self.cleanup()
+
+    def _analyze_loop(self):
+        try:
             print("VLM 모델 로딩 중...")
             from vlm.person_analyzer import PersonAnalyzer
 
@@ -62,6 +69,10 @@ class VLMWorker:
                 person_id, crop_path = self.task_queue.get(timeout=1)
             except queue.Empty:
                 continue
+
+            if not self.running:
+                self.task_queue.task_done()
+                break
 
             try:
                 print(f"ID {person_id} VLM 분석 시작: {crop_path}")
@@ -82,15 +93,15 @@ class VLMWorker:
             finally:
                 self.task_queue.task_done()
 
-        self.cleanup()
-
-    def stop(self):
+    def request_stop(self):
         self.running = False
 
+    def stop(self, timeout=0.2):
+        self.request_stop()
         if self.thread is not None and self.thread.is_alive():
-            self.thread.join(timeout=10)
-
-        self.cleanup()
+            self.thread.join(timeout=timeout)
+        # 분석 스레드가 finally에서 모델을 해제하기 전에는 완료로 간주하지 않는다.
+        return self.thread is None or not self.thread.is_alive()
 
     def cleanup(self):
         if self.analyzer is not None:

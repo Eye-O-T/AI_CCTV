@@ -234,13 +234,14 @@ class RTSPReceiver:
                 return self.frame.copy()  # 원본 이미지의 복제본(사본)을 전달하여 메모리 충돌 방지
             return None
 
-    def stop(self):
+    def stop(self, timeout=0.2):
         """
         프로그램 종료 시 외부에서 안전하게 수집 전담 스레드와 감시 스레드를 정지시키는 해제 함수.
         """
         self.running = False  # 스레드 종료 트리거
         if self.thread is not None:
-            self.thread.join(timeout=3)  # 수집 스레드가 완전히 퇴근할 때까지 최대 3초 대기
+            self.thread.join(timeout=timeout)
         if self.watchdog_thread is not None:
-            self.watchdog_thread.join(timeout=3)  # 감시 스레드가 완전히 퇴근할 때까지 최대 3초 대기
-        print("[*] RTSP Receiver stopped.")
+            self.watchdog_thread.join(timeout=timeout)
+        stopped = not any(thread is not None and thread.is_alive() for thread in (self.thread, self.watchdog_thread))
+        return stopped

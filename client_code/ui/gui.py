@@ -11,15 +11,20 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QFrame,
     QScrollArea,
+    QDialog,
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+import time
 from PyQt5.QtGui import QImage, QPixmap
 from ui.settings_window import SettingsWindow
 from ui.resource_monitor_window import ResourceMonitorWindow
-from workers.video_worker import VideoWorker
 
 
 class CCTVMainWindow(QMainWindow):
+    logout_requested = pyqtSignal()
+    close_requested = pyqtSignal()
+    shutdown_complete = pyqtSignal()
+
     def __init__(self):
         super().__init__()
 
@@ -40,6 +45,13 @@ class CCTVMainWindow(QMainWindow):
         self.original_segment_seconds = 10
         self.clip_max_seconds = 10
         self.resource_monitor_window = None
+        self.allow_close = False
+        self._stopping = False
+        self._shutting_down = False
+        self._stop_started = 0
+        self._stop_timer = QTimer(self)
+        self._stop_timer.setInterval(100)
+        self._stop_timer.timeout.connect(self._poll_stop)
 
         self.init_ui()
 
@@ -89,6 +101,13 @@ class CCTVMainWindow(QMainWindow):
         header_layout.addWidget(self.btn_stop)
         header_layout.addWidget(self.btn_setting)
         header_layout.addWidget(self.btn_resource_monitor)
+        self.btn_logout = QPushButton("로그아웃")
+        self.btn_logout.setStyleSheet(
+            "background-color: #334155; color: white; padding: 8px 20px; "
+            "border-radius: 5px; font-size: 22px; font-weight: bold;"
+        )
+        self.btn_logout.clicked.connect(self.logout_requested)
+        header_layout.addWidget(self.btn_logout)
 
         main_layout.addLayout(header_layout)
 
@@ -205,8 +224,10 @@ class CCTVMainWindow(QMainWindow):
         }
 
     def start_video(self):
-        if self.worker is not None:
+        if self.worker is not None or self._stopping or self._shutting_down:
             return
+
+        from workers.video_worker import VideoWorker
 
         source = self.video_source
 
@@ -233,16 +254,53 @@ class CCTVMainWindow(QMainWindow):
         )
 
     def stop_video(self):
+        if self._stopping:
+            return
+        self._stopping = True
+        self._stop_started = time.monotonic()
+        self._set_controls(False)
         if self.worker is not None:
-            self.worker.stop()
-            self.worker = None
+            self.worker.request_stop()
+        self.statusBar().showMessage("영상 수신·녹화·분석을 정리하고 있습니다…")
+        self._stop_timer.start()
 
+    def begin_shutdown(self):
+        self._shutting_down = True
+        for dialog in self.findChildren(QDialog):
+            dialog.close()
+        self.stop_video()
+
+    def _set_controls(self, enabled):
+        for button in (self.btn_start, self.btn_stop, self.btn_setting, self.btn_resource_monitor, self.btn_logout):
+            button.setEnabled(enabled)
+
+    def _poll_stop(self):
+        video_done = self.worker is None or not self.worker.isRunning()
+        monitor_done = not self._shutting_down or self.resource_monitor_window is None
+        if not video_done or not monitor_done:
+            if time.monotonic() - self._stop_started > 30:
+                self.statusBar().showMessage("정리에 시간이 걸리고 있습니다. 분석·수신·복구 작업 종료를 기다리는 중입니다.")
+            return
+        if self.worker is not None:
+            if not self.worker.cleanup_ok:
+                self.statusBar().showMessage("작업 정리에 실패했습니다. 안전한 종료가 확인되지 않아 화면 전환을 중단했습니다.")
+                self._stop_timer.stop()
+                return
+            self.worker.deleteLater()
+            self.worker = None
+        self._stop_timer.stop()
+        self._stopping = False
         self.cam_status.setText("● CAM-01 · 중지됨")
         self.cam_status.setStyleSheet(
             "background-color: #0f172a; border: 1px solid #ef4444; "
             "border-radius: 5px; padding: 15px; color: #ef4444; font-size: 22px;"
         )
         self.show_idle_screen()
+        self.statusBar().clearMessage()
+        if self._shutting_down:
+            self.shutdown_complete.emit()
+        else:
+            self._set_controls(True)
 
     def open_settings(self):
         dialog = SettingsWindow(
@@ -310,6 +368,8 @@ class CCTVMainWindow(QMainWindow):
         self.resource_monitor_window.activateWindow()
 
     def handle_resource_monitor_closed(self):
+        if self.resource_monitor_window is not None:
+            self.resource_monitor_window.deleteLater()
         self.resource_monitor_window = None
 
     def update_frame(self, frame):
@@ -386,13 +446,15 @@ class CCTVMainWindow(QMainWindow):
         )
 
     def handle_worker_finished(self):
+        if self._stopping:
+            return
         if self.worker is None:
             return
-
-        if not self.worker.running:
-            return
-
-        self.worker = None
+        if self.worker.cleanup_ok:
+            self.worker.deleteLater()
+            self.worker = None
+        else:
+            self.stop_video()
         self.cam_status.setText("● CAM-01 · 오류")
         self.cam_status.setStyleSheet(
             "background-color: #0f172a; border: 1px solid #ef4444; "
@@ -470,6 +532,9 @@ class CCTVMainWindow(QMainWindow):
                     widget.deleteLater()
 
     def closeEvent(self, event):
-        self.stop_video()
-        event.accept()
+        if self.allow_close:
+            event.accept()
+        else:
+            event.ignore()
+            self.close_requested.emit()
 
