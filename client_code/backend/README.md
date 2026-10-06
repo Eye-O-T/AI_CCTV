@@ -1,6 +1,6 @@
 # PC CCTV 백엔드
 
-현재는 폴더와 모듈의 역할만 정한 구조 틀이다. FastAPI 앱, DB 연결, 인증 및 API는 아직 구현하지 않았으며 서버를 실행할 수 있는 상태가 아니다.
+현재 `main.py`에 최소 FastAPI 앱과 `GET /health`가 구현되어 있다. DB 연결과 인증·카메라·이벤트 API는 아직 구현하지 않았다. 다음 단계는 인증 API 구현 및 검증 후 PyQt 클라이언트 연결이다.
 
 ```text
 backend/
@@ -19,6 +19,7 @@ backend/
 ## 구현 기준
 
 - [백엔드 스키마 및 제약사항](../docs/BACKEND_SCHEMA.md)을 참고한다.
+- API 구현·클라이언트 연동·검증 전에는 [통합 API 명세서](../docs/API_SPEC.md)를 읽는다. 현재 인증 API 계약이 정리되어 있으며, 이후 카메라·이벤트 명세도 같은 파일 하단에 추가한다.
 - 요청 처리는 Router → Service → Repository 순서로 나눈다.
 - DB 모델과 API 요청·응답 모델을 분리한다.
 - 백엔드는 PyQt 화면이나 YOLO·CNN 모델을 import하지 않는다.
