@@ -215,7 +215,9 @@ class WindowTests(unittest.TestCase):
         self.controller.start()
         self.api.finish("signup-status", {"signup_required": False})
         self.session.login("admin", "test-pass")
-        self.api.finish("login", tokens())
+        # 이 테스트는 가짜 인증 API만 사용하며 카메라 HTTP 연결은 별도 통합 테스트에서 검증한다.
+        with patch.object(CCTVMainWindow, "bind_camera_session"):
+            self.api.finish("login", tokens())
 
     def test_signup_login_visibility_and_validation(self):
         window = self.controller.auth_window

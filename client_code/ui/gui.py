@@ -12,6 +12,8 @@ from PyQt5.QtWidgets import (
     QFrame,
     QScrollArea,
     QDialog,
+    QListWidget,
+    QListWidgetItem,
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 import time
@@ -53,7 +55,14 @@ class CCTVMainWindow(QMainWindow):
         self._stop_timer.setInterval(100)
         self._stop_timer.timeout.connect(self._poll_stop)
 
+        self.camera_api = None
+        self.selected_camera_id = None
+        self.camera_rows = {}
         self.init_ui()
+        self.btn_start.setEnabled(False)
+        self.btn_start.setToolTip("카메라 영상 실행 연결은 다음 단계에서 지원합니다.")
+        self.btn_resource_monitor.setEnabled(False)
+        self.btn_resource_monitor.setToolTip("선택 카메라의 장치 연결은 다음 단계에서 지원합니다.")
 
     def init_ui(self):
         central_widget = QWidget()
@@ -125,13 +134,23 @@ class CCTVMainWindow(QMainWindow):
         cam_label.setStyleSheet("color: #94a3b8; font-size: 17px;")
         left_layout.addWidget(cam_label)
 
-        self.cam_status = QLabel("● CAM-01 · 대기 중")
+        self.cam_status = QLabel("카메라 목록을 불러오지 않았습니다.")
+        self.cam_status.setWordWrap(True)
+        self.cam_status.setTextFormat(Qt.PlainText)
         self.cam_status.setStyleSheet(
             "background-color: #0f172a; border: 1px solid #3b82f6; "
             "border-radius: 5px; padding: 15px; color: #facc15; font-size: 22px;"
         )
         left_layout.addWidget(self.cam_status)
-        left_layout.addStretch()
+        self.camera_list = QListWidget()
+        self.camera_list.currentItemChanged.connect(self.select_camera)
+        left_layout.addWidget(self.camera_list)
+        self.btn_camera_refresh = QPushButton("목록 새로고침")
+        self.btn_camera_refresh.clicked.connect(self.reload_cameras)
+        left_layout.addWidget(self.btn_camera_refresh)
+        self.btn_camera_manage = QPushButton("카메라 등록 / 관리")
+        self.btn_camera_manage.clicked.connect(self.open_settings)
+        left_layout.addWidget(self.btn_camera_manage)
 
         body_layout.addWidget(left_panel)
 
@@ -139,11 +158,13 @@ class CCTVMainWindow(QMainWindow):
         center_panel.setStyleSheet("background-color: #1e293b; border-radius: 10px;")
         center_layout = QVBoxLayout(center_panel)
 
-        center_title = QLabel("CAM-01 정문 · 실시간 분석 화면")
+        center_title = QLabel("카메라를 선택하세요")
+        self.center_title = center_title
+        center_title.setTextFormat(Qt.PlainText)
         center_title.setStyleSheet("font-size: 22px; font-weight: bold;")
         center_layout.addWidget(center_title)
 
-        self.video_label = QLabel("LIVE VIDEO SURFACE")
+        self.video_label = QLabel("카메라 관리 연결 단계입니다.\n영상 실행은 다음 단계에서 지원합니다.")
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setStyleSheet(
             "background-color: #0f172a; border-radius: 5px; "
@@ -223,7 +244,66 @@ class CCTVMainWindow(QMainWindow):
             "label": text_label
         }
 
+    def bind_camera_session(self, session):
+        from cameras.api_client import CameraApiClient
+        self.camera_api = CameraApiClient(session, self)
+        self.camera_api.completed.connect(self.cameras_received)
+        self.camera_api.busy_changed.connect(lambda busy: self.btn_camera_refresh.setEnabled(not busy and not self._shutting_down))
+        self.reload_cameras()
+
+    def reload_cameras(self):
+        if self.camera_api is None or self._shutting_down:
+            return
+        if self.camera_api.request("GET"):
+            self.cam_status.setText("카메라 목록 조회 중…")
+
+    def camera_saved(self, camera_id):
+        self.selected_camera_id = camera_id
+        if self.camera_api is not None:
+            self.camera_api.cancel()
+        self.reload_cameras()
+
+    def cameras_received(self, payload, error, field):
+        from ui.camera_management import valid_camera, camera_label, MESSAGES
+        if self._shutting_down:
+            return
+        if error:
+            self.cam_status.setText(MESSAGES.get(error, "목록 조회 실패. 새로고침해 주세요."))
+            return
+        rows = payload.get("items")
+        if not isinstance(rows, list) or not all(valid_camera(row) for row in rows):
+            self.cam_status.setText(MESSAGES["INVALID_RESPONSE"])
+            return
+        previous = self.selected_camera_id
+        self.camera_list.blockSignals(True)
+        self.camera_list.clear()
+        self.camera_rows = {row["camera_id"]: row for row in rows}
+        chosen = None
+        for row in rows:
+            item = QListWidgetItem(camera_label(row))
+            item.setData(Qt.UserRole, row["camera_id"])
+            if not row["is_enabled"]:
+                item.setForeground(Qt.gray)
+            self.camera_list.addItem(item)
+            if row["camera_id"] == previous:
+                chosen = item
+        if chosen:
+            self.camera_list.setCurrentItem(chosen)
+        self.camera_list.blockSignals(False)
+        self.select_camera(chosen, None)
+        self.cam_status.setText("등록된 카메라가 없습니다. 카메라를 등록해 주세요." if not rows else "카메라를 선택하세요. 영상 실행은 준비 중입니다.")
+
+    def select_camera(self, item, _old):
+        self.selected_camera_id = item.data(Qt.UserRole) if item else None
+        row = self.camera_rows.get(self.selected_camera_id)
+        self.center_title.setText(f"CAM-{row['camera_id']:02d} · {row['name']}" if row else "카메라를 선택하세요")
+        self.video_label.setText("비활성 카메라입니다." if row and not row['is_enabled'] else "영상 실행은 다음 단계에서 지원합니다.")
+
     def start_video(self):
+        self.statusBar().showMessage("카메라 영상 실행은 다음 단계에서 지원합니다.")
+        return
+
+    def _start_legacy_video(self):
         if self.worker is not None or self._stopping or self._shutting_down:
             return
 
@@ -266,6 +346,8 @@ class CCTVMainWindow(QMainWindow):
 
     def begin_shutdown(self):
         self._shutting_down = True
+        if self.camera_api is not None:
+            self.camera_api.cancel()
         for dialog in self.findChildren(QDialog):
             dialog.close()
         self.stop_video()
@@ -273,6 +355,11 @@ class CCTVMainWindow(QMainWindow):
     def _set_controls(self, enabled):
         for button in (self.btn_start, self.btn_stop, self.btn_setting, self.btn_resource_monitor, self.btn_logout):
             button.setEnabled(enabled)
+        self.btn_start.setEnabled(False)
+        self.btn_resource_monitor.setEnabled(False)
+        self.btn_camera_manage.setEnabled(enabled)
+        self.btn_camera_refresh.setEnabled(enabled)
+        self.camera_list.setEnabled(enabled)
 
     def _poll_stop(self):
         video_done = self.worker is None or not self.worker.isRunning()
@@ -290,7 +377,7 @@ class CCTVMainWindow(QMainWindow):
             self.worker = None
         self._stop_timer.stop()
         self._stopping = False
-        self.cam_status.setText("● CAM-01 · 중지됨")
+        self.cam_status.setText("영상 작업 중지됨")
         self.cam_status.setStyleSheet(
             "background-color: #0f172a; border: 1px solid #ef4444; "
             "border-radius: 5px; padding: 15px; color: #ef4444; font-size: 22px;"
@@ -311,11 +398,12 @@ class CCTVMainWindow(QMainWindow):
             storage_root_path=self.storage_root_path,
             ai_cctv_path=self.ai_cctv_path,
             original_segment_seconds=self.original_segment_seconds,
-            clip_max_seconds=self.clip_max_seconds
+            clip_max_seconds=self.clip_max_seconds,
+            session=self.camera_api.session if self.camera_api is not None else None
         )
-
+        if dialog.camera_page is not None:
+            dialog.camera_page.saved.connect(self.camera_saved)
         if dialog.exec_():
-            self.video_source = dialog.selected_source
             self.use_yolo = dialog.use_yolo
             self.use_vlm = dialog.use_vlm
 
@@ -324,9 +412,7 @@ class CCTVMainWindow(QMainWindow):
             self.original_segment_seconds = dialog.original_segment_seconds
             self.clip_max_seconds = dialog.clip_max_seconds
 
-            self.cam_status.setText(
-                f"● CAM-01 · 입력 설정 완료: {self.video_source}"
-            )
+            self.statusBar().showMessage("프로그램 설정을 적용했습니다.")
 
             if self.ai_cctv_path:
                 self.storage_label.setText(
@@ -342,6 +428,8 @@ class CCTVMainWindow(QMainWindow):
                     "저장 경로가 설정되지 않았습니다.\n\n"
                     "설정 → 저장 설정에서 위치를 선택하세요."
                 )
+
+        dialog.deleteLater()
 
     def _build_resource_monitor_url(self, source):
         parsed = urlparse(str(source))

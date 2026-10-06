@@ -26,6 +26,7 @@ class SessionManager(QObject):
     expired = pyqtSignal(str)
     signed_out = pyqtSignal(str)
     busy_changed = pyqtSignal(bool)
+    refresh_completed = pyqtSignal(str)
 
     def __init__(self, api=None, parent=None):
         super().__init__(parent)
@@ -74,6 +75,10 @@ class SessionManager(QObject):
             return
         if not self._request("refresh", {"refresh_token": self.refresh_token}):
             self.refresh_timer.start(1000)
+
+    def expire_access(self):
+        if not self.ending and not self.expiry_reported:
+            self._expire("로그인 상태를 확인할 수 없습니다. 다시 로그인해 주세요.")
 
     def logout(self):
         self.ending = True
@@ -149,6 +154,8 @@ class SessionManager(QObject):
         if self.ending:
             self._logout_latest()
             return
+        if action == "refresh":
+            self.refresh_completed.emit(error)
         if error:
             if action == "refresh":
                 if error in ("CONNECTION_ERROR", "SERVER_ERROR", "INTERNAL_SERVER_ERROR") and not self._check_deadline():

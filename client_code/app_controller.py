@@ -67,6 +67,8 @@ class AppController(QObject):
             self.main_window.logout_requested.connect(self.request_logout)
             self.main_window.close_requested.connect(self.request_exit)
             self.main_window.shutdown_complete.connect(self._work_stopped)
+            if hasattr(self.main_window, "bind_camera_session"):
+                self.main_window.bind_camera_session(self.session)
             self.main_window.show()
             self.auth_window.hide()
         except Exception:
