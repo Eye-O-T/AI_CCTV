@@ -3,7 +3,7 @@
 - 정리일: 2026-10-05
 - 인증 정책 갱신일: 2026-10-06. 요청·응답과 세션 제약은 [통합 API 명세서](API_SPEC.md)를 참고한다.
 - 상태: 사용자와 합의한 **구현 전 설계 기준**. 현재 코드에 구현되어 있다는 의미가 아니다.
-- 2026-10-06 구현 범위: 인증용 `users`, `server_runs`와 인증 API 5개, PyQt 인증 화면·서버 자동 시작 및 종료를 구현했다. 2026-10-07에는 Camera 모델·Pydantic 스키마까지 구현했다. 카메라 API, `events` 및 영상 결과 API·Flutter 연동은 여전히 설계 상태다. 구현·검증 상태는 [백엔드 README](../backend/README.md)와 [클라이언트 README](../README.md)를 참고한다.
+- 2026-10-06 구현 범위: 인증용 `users`, `server_runs`와 인증 API 5개, PyQt 인증 화면·서버 자동 시작 및 종료를 구현했다. 2026-10-07에는 Camera 모델·스키마·Repository·Service·Router와 카메라 API를 구현·검증했다. `events` 및 영상 결과 API·Flutter 연동은 여전히 설계 상태다. 구현·검증 상태는 [백엔드 README](../backend/README.md)와 [클라이언트 README](../README.md)를 참고한다.
 - 범위: FastAPI + SQLite 기반 관리자 인증, 카메라 등록, 이벤트 저장 및 글로벌 인물 ID 연결.
 - 원칙: 기본 테이블은 `server_runs`, `users`, `cameras`, `events` **네 개**로 유지한다. 별도 테이블·서비스·기능은 필요성을 설명하고 범위를 합의한 뒤 추가한다.
 - 이 문서를 근거로 기존 코드를 자동으로 변경하지 않는다. 실제 구현은 사용자가 요청한 단계와 범위에서 진행한다.
@@ -93,7 +93,7 @@
 
 ### 제약 및 동작
 
-- 카메라 관리 API의 상세 계약은 [통합 API 명세서의 카메라 API 절](API_SPEC.md#카메라-api-설계-완료--구현-전)을 따른다. 2026-10-07 Camera 모델·Pydantic 스키마까지 구현했으며 API는 아직 미구현이다.
+- 카메라 관리 API의 상세 계약은 [통합 API 명세서의 카메라 API 절](API_SPEC.md#카메라-api)을 따른다. 2026-10-07 Camera 모델·스키마·Repository·Service·Router와 API 검증을 완료했다. PyQt 카메라 연결은 후속 범위다.
 - `name`은 앞뒤 공백 제거 후 1~100자이며 중복을 허용한다. SQLite에서도 길이 CHECK를 적용한다.
 - `camera_type`은 등록 후 변경하지 않는다. `webcam_index`는 0 이상이며 UNIQUE, `rtsp_url`도 UNIQUE로 제한한다. NULL은 여러 행에서 허용하며 비활성 등록도 중복 제약에 포함한다.
 - 주소는 앞뒤 공백만 제거해 저장한다. RTSP 주소는 rtsp/rtsps, 장치 API 주소는 http/https를 허용한다. URL userinfo는 거부하며 자격증명을 URL에 저장하지 않는다. 주소 검증·정확한 문자열 중복 기준은 API 명세를 따른다.

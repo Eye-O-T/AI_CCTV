@@ -265,7 +265,7 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
         self.assertEqual(self.client.get("/docs").status_code, 200)
         paths = create_app(self.db_path).openapi()["paths"]
-        self.assertEqual(set(paths), {"/health", *(PREFIX + "/" + name for name in ("signup-status", "signup", "login", "logout", "refresh"))})
+        self.assertEqual(set(paths), {"/health", "/api/v1/cameras", "/api/v1/cameras/{camera_id}", *(PREFIX + "/" + name for name in ("signup-status", "signup", "login", "logout", "refresh"))})
         self.assertEqual(DEFAULT_DB_PATH, Path(__file__).resolve().parents[1] / "data" / "ai_cctv.db")
 
 

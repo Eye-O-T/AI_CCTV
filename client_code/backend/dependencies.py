@@ -7,9 +7,14 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .errors import APIError
 from .services.auth_service import AuthService
+from .services.camera_service import CameraService
 
 
 bearer = HTTPBearer(auto_error=False)
+
+
+def get_camera_service(request: Request) -> CameraService:
+    return request.app.state.camera_service
 
 
 def get_auth_service(request: Request) -> AuthService:
