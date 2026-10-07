@@ -14,8 +14,8 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-import time
+from PyQt5.QtCore import Qt, pyqtSignal
+from cameras.runtime_manager import CameraRuntimeManager
 from PyQt5.QtGui import QImage, QPixmap
 from ui.settings_window import SettingsWindow
 from ui.resource_monitor_window import ResourceMonitorWindow
@@ -35,39 +35,50 @@ class CCTVMainWindow(QMainWindow):
             "background-color: #0f172a; color: #f8fafc; font-family: Arial;"
         )
 
-        self.worker = None
         self.appear_count = 0
         self.disappear_count = 0
         self.video_source = 0
         self.use_yolo = True
-        self.use_vlm = True
+        self.use_vlm = False
         self.storage_root_path = ""
         self.ai_cctv_path = ""
         self.original_segment_seconds = 10
         self.clip_max_seconds = 10
         self.resource_monitor_window = None
         self.allow_close = False
-        self._stopping = False
-        self._shutting_down = False
-        self._stop_started = 0
-        self._stop_timer = QTimer(self)
-        self._stop_timer.setInterval(100)
-        self._stop_timer.timeout.connect(self._poll_stop)
-
-        self.detail_api = None
-        self.detail_pending = None
-        self.running_camera = None
-        self.runtime_states = {}
-        self.run_generation = 0
-        self._terminal_error = False
+        self.runtime = CameraRuntimeManager(self)
         self.camera_api = None
         self.selected_camera_id = None
         self.camera_rows = {}
         self.init_ui()
+        self._connect_runtime()
         self.btn_start.setEnabled(False)
         self.btn_start.setToolTip("선택한 활성 카메라를 실행합니다.")
         self.btn_resource_monitor.setEnabled(False)
         self.btn_resource_monitor.setToolTip("선택 카메라의 장치 API 주소로 모니터링합니다.")
+
+    def _connect_runtime(self):
+        runtime = self.runtime
+        runtime.changed.connect(lambda: self._set_controls(True))
+        runtime.detail_failed.connect(self._detail_failed)
+        runtime.camera_updated.connect(self._camera_updated)
+        runtime.started.connect(self._camera_started)
+        runtime.monitor_ready.connect(self._show_resource_monitor)
+        runtime.status_changed.connect(self._runtime_status)
+        runtime.frame_ready.connect(self.update_frame)
+        runtime.metrics_ready.connect(self.update_metrics)
+        runtime.event_ready.connect(self.add_event)
+        runtime.loading_ready.connect(self.show_loading_screen)
+        runtime.notice.connect(self.statusBar().showMessage)
+        runtime.stop_requested.connect(self._close_monitor)
+        runtime.stopped.connect(self._runtime_stopped)
+
+    def _detail_failed(self, error):
+        from ui.camera_management import MESSAGES
+        self.statusBar().showMessage(MESSAGES.get(error, '카메라 정보를 확인할 수 없습니다. 다시 조회하세요.'))
+
+    def _camera_updated(self, camera):
+        self.camera_rows[camera['camera_id']] = camera
 
     def init_ui(self):
         central_widget = QWidget()
@@ -254,12 +265,11 @@ class CCTVMainWindow(QMainWindow):
         self.camera_api = CameraApiClient(session, self)
         self.camera_api.completed.connect(self.cameras_received)
         self.camera_api.busy_changed.connect(lambda busy: self._set_controls(True))
-        self.detail_api = CameraApiClient(session, self)
-        self.detail_api.completed.connect(self.camera_detail_received)
+        self.runtime.bind_session(session)
         self.reload_cameras()
 
     def reload_cameras(self):
-        if self.camera_api is None or self._shutting_down or self.worker is not None or self.detail_pending:
+        if self.camera_api is None or self.runtime.shutting_down or self.runtime.worker is not None or self.runtime.detail_pending:
             return
         if self.camera_api.request("GET"):
             self.cam_status.setText("카메라 목록 조회 중…")
@@ -271,8 +281,9 @@ class CCTVMainWindow(QMainWindow):
         self.reload_cameras()
 
     def cameras_received(self, payload, error, field):
-        from ui.camera_management import valid_camera, camera_label, MESSAGES
-        if self._shutting_down:
+        from cameras.api_client import valid_camera
+        from ui.camera_management import MESSAGES
+        if self.runtime.shutting_down:
             return
         if error:
             self.cam_status.setText(MESSAGES.get(error, "목록 조회 실패. 새로고침해 주세요."))
@@ -287,7 +298,7 @@ class CCTVMainWindow(QMainWindow):
         self.camera_rows = {row["camera_id"]: row for row in rows}
         chosen = None
         for row in rows:
-            state = self.runtime_states.get(row['camera_id'], '대기 중') if row['is_enabled'] else '비활성'
+            state = self.runtime.runtime_states.get(row['camera_id'], '대기 중') if row['is_enabled'] else '비활성'
             item = QListWidgetItem(f"CAM-{row['camera_id']:02d} · {row['name']}\n{state}")
             item.setData(Qt.UserRole, row["camera_id"])
             if not row["is_enabled"]:
@@ -302,7 +313,7 @@ class CCTVMainWindow(QMainWindow):
         self.cam_status.setText("등록된 카메라가 없습니다. 카메라를 등록해 주세요." if not rows else "카메라를 선택하고 START를 누르세요.")
 
     def select_camera(self, item, _old):
-        if self.worker is not None or self.detail_pending or self._stopping:
+        if self.runtime.worker is not None or self.runtime.detail_pending or self.runtime.stopping:
             return
         self.selected_camera_id = item.data(Qt.UserRole) if item else None
         row = self.camera_rows.get(self.selected_camera_id)
@@ -311,14 +322,8 @@ class CCTVMainWindow(QMainWindow):
         self.video_label.setText("비활성 카메라입니다." if row and not row['is_enabled'] else "카메라를 선택하고 START를 누르세요.")
         self._set_controls(True)
 
-    def _runtime_status(self, status):
-        camera = self.running_camera or self.camera_rows.get(self.selected_camera_id)
-        if camera is None:
-            return
+    def _runtime_status(self, camera, status):
         camera_id = camera['camera_id']
-        if self.runtime_states.get(camera_id) == status:
-            return
-        self.runtime_states[camera_id] = status
         self.cam_status.setText(f"CAM-{camera_id:02d} · {status}")
         color = '#22c55e' if status == 'LIVE' else '#facc15'
         self.cam_status.setStyleSheet(f"padding: 12px; color: {color}; font-size: 18px;")
@@ -331,74 +336,17 @@ class CCTVMainWindow(QMainWindow):
         self._request_camera_detail('start')
 
     def _request_camera_detail(self, purpose):
-        row = self.camera_rows.get(self.selected_camera_id)
-        if (self.detail_api is None or self.detail_pending or self._stopping or self._shutting_down
-                or not row or not row['is_enabled']):
+        if self.resource_monitor_window is not None:
             return
-        if purpose == 'start' and (self.worker is not None or self.resource_monitor_window is not None):
-            return
-        self.detail_pending = (purpose, self.selected_camera_id)
-        self._set_controls(True)
-        self.statusBar().showMessage("최신 카메라 정보를 확인하고 있습니다…")
-        if not self.detail_api.request('GET', f"/{self.selected_camera_id}"):
-            self.detail_pending = None
-            self._set_controls(True)
+        self.runtime.request_detail(self.camera_rows.get(self.selected_camera_id), purpose, {
+            'use_yolo': self.use_yolo,
+            'ai_cctv_path': self.ai_cctv_path,
+            'original_segment_seconds': self.original_segment_seconds,
+            'clip_max_seconds': self.clip_max_seconds,
+        })
 
-    def camera_detail_received(self, payload, error, field):
-        from ui.camera_management import valid_camera, MESSAGES
-        pending, self.detail_pending = self.detail_pending, None
-        if pending is None or self._stopping or self._shutting_down:
-            return
-        purpose, camera_id = pending
-        self._set_controls(True)
-        if error or not valid_camera(payload, detail=True) or payload['camera_id'] != camera_id:
-            self.statusBar().showMessage(MESSAGES.get(error, "카메라 정보를 확인할 수 없습니다. 다시 조회하세요."))
-            return
-        self.camera_rows[camera_id] = payload
-        if not payload['is_enabled']:
-            self._runtime_status('비활성')
-            self._set_controls(True)
-            self.statusBar().showMessage("비활성 카메라는 실행할 수 없습니다.")
-            return
-        if purpose == 'monitor':
-            self._show_resource_monitor(payload)
-            return
-        self._start_camera(payload)
-
-    def _dispatch_video(self, generation, callback, *args):
-        if (generation == self.run_generation and self.worker is not None
-                and not self._stopping and not self._shutting_down):
-            callback(*args)
-
-    def _start_camera(self, camera):
-        from workers.video_worker import VideoWorker
-        self.running_camera = dict(camera)
-        self.run_generation += 1
-        generation = self.run_generation
-        self._terminal_error = False
+    def _camera_started(self, camera):
         self.video_source = camera['webcam_index'] if camera['camera_type'] == 'webcam' else camera['rtsp_url']
-        try:
-            self.worker = VideoWorker(
-                source=self.video_source, camera_id=camera['camera_id'],
-                edge_api_base_url=camera.get('edge_api_base_url'),
-                use_yolo=self.use_yolo, use_vlm=self.use_vlm,
-                ai_cctv_path=self.ai_cctv_path,
-                original_segment_seconds=self.original_segment_seconds,
-                clip_max_seconds=self.clip_max_seconds)
-        except Exception:
-            self.worker = None
-            self._runtime_status('오류')
-            self.running_camera = None
-            self.statusBar().showMessage("영상 작업을 준비하지 못했습니다. 입력과 저장 경로를 확인하세요.")
-            self._set_controls(True)
-            return
-        for signal, callback in ((self.worker.frame_ready, self.update_frame),
-                                 (self.worker.metrics_ready, self.update_metrics),
-                                 (self.worker.event_ready, self.add_event),
-                                 (self.worker.loading_ready, self.show_loading_screen),
-                                 (self.worker.status_ready, self._runtime_status),
-                                 (self.worker.finished, self.handle_worker_finished)):
-            signal.connect(lambda *args, cb=callback, gen=generation: self._dispatch_video(gen, cb, *args))
         self.appear_count = self.disappear_count = 0
         for metric in (self.metric_current, self.metric_total, self.metric_appear, self.metric_disappear):
             metric['value'].setText('0')
@@ -407,81 +355,49 @@ class CCTVMainWindow(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
         self.center_title.setText(f"CAM-{camera['camera_id']:02d} · {camera['name']}")
-        self._runtime_status('로딩 중')
-        self.show_loading_screen('시스템 시작 중…')
-        self._set_controls(True)
-        self.worker.start()
 
     def stop_video(self):
-        if self._stopping:
-            return
-        self._stopping = True
-        if self.detail_api is not None:
-            self.detail_api.cancel()
-        self.detail_pending = None
-        self.run_generation += 1
-        self._runtime_status('중지 중')
+        self.runtime.stop()
+
+    def _close_monitor(self):
         if self.resource_monitor_window is not None:
             self.resource_monitor_window.close()
-        self._stop_started = time.monotonic()
-        self._set_controls(False)
-        if self.worker is not None:
-            self.worker.request_stop()
-        self.statusBar().showMessage("영상 수신·녹화·분석을 정리하고 있습니다…")
-        self._stop_timer.start()
 
     def begin_shutdown(self):
-        self._shutting_down = True
+        self.runtime.shutting_down = True
         if self.camera_api is not None:
             self.camera_api.cancel()
         for dialog in self.findChildren(QDialog):
             dialog.close()
-        self.stop_video()
+        self.runtime.begin_shutdown()
 
     def _set_controls(self, enabled):
-        available = enabled and not self._stopping and not self._shutting_down
-        idle = available and self.worker is None and self.detail_pending is None and self.resource_monitor_window is None and (self.camera_api is None or self.camera_api.pending is None)
+        available = enabled and not self.runtime.stopping and not self.runtime.shutting_down
+        idle = available and self.runtime.worker is None and self.runtime.detail_pending is None and self.resource_monitor_window is None and (self.camera_api is None or self.camera_api.pending is None)
         row = self.camera_rows.get(self.selected_camera_id)
-        self.btn_start.setEnabled(bool(idle and row and row['is_enabled'] and self.detail_api))
-        self.btn_stop.setEnabled(bool(available and (self.worker is not None or self.detail_pending)))
+        self.btn_start.setEnabled(bool(idle and row and row['is_enabled'] and self.runtime.detail_api))
+        self.btn_stop.setEnabled(bool(available and (self.runtime.worker is not None or self.runtime.detail_pending)))
         self.btn_setting.setEnabled(idle)
         self.btn_camera_manage.setEnabled(idle)
         self.camera_list.setEnabled(idle)
         self.btn_camera_refresh.setEnabled(bool(idle and self.camera_api and self.camera_api.pending is None))
-        self.btn_resource_monitor.setEnabled(bool(available and row and row['is_enabled'] and not self.detail_pending))
+        self.btn_resource_monitor.setEnabled(bool(available and row and row['is_enabled'] and not self.runtime.detail_pending))
         self.btn_logout.setEnabled(available)
 
-    def _poll_stop(self):
-        video_done = self.worker is None or not self.worker.isRunning()
-        monitor_done = self.resource_monitor_window is None
-        if not video_done or not monitor_done:
-            if time.monotonic() - self._stop_started > 30:
-                self.statusBar().showMessage("정리에 시간이 걸리고 있습니다. 분석·수신·복구 작업 종료를 기다리는 중입니다.")
-            return
-        if self.worker is not None:
-            if not self.worker.cleanup_ok:
-                self.statusBar().showMessage("작업 정리에 실패했습니다. 안전한 종료가 확인되지 않아 화면 전환을 중단했습니다.")
-                self._stop_timer.stop()
-                return
-            self.worker.deleteLater()
-            self.worker = None
-        self._stop_timer.stop()
-        self._stopping = False
-        self._runtime_status('오류' if self._terminal_error else '중지됨')
-        self.running_camera = None
+    def _runtime_stopped(self):
         self.cam_status.setStyleSheet(
             "background-color: #0f172a; border: 1px solid #ef4444; "
             "border-radius: 5px; padding: 15px; color: #ef4444; font-size: 22px;"
         )
         self.show_idle_screen()
         self.statusBar().clearMessage()
-        if self._shutting_down:
+        if self.runtime.shutting_down:
             self.shutdown_complete.emit()
         else:
             self._set_controls(True)
 
     def open_settings(self):
-        if self.worker is not None or self.detail_pending or self._stopping or self._shutting_down or self.resource_monitor_window is not None:
+        if self.runtime.worker is not None or self.runtime.detail_pending or self.runtime.stopping or self.runtime.shutting_down or self.resource_monitor_window is not None:
             return
         dialog = SettingsWindow(
             self,
@@ -525,11 +441,13 @@ class CCTVMainWindow(QMainWindow):
         dialog.deleteLater()
 
     def open_resource_monitor(self):
+        if self.runtime.stopping or self.runtime.shutting_down:
+            return
         if self.resource_monitor_window is not None:
             self.resource_monitor_window.raise_()
             return
-        if self.running_camera is not None:
-            self._show_resource_monitor(self.running_camera)
+        if self.runtime.running_camera is not None:
+            self._show_resource_monitor(self.runtime.running_camera)
         else:
             self._request_camera_detail('monitor')
 
@@ -537,6 +455,7 @@ class CCTVMainWindow(QMainWindow):
         self.resource_monitor_window = ResourceMonitorWindow(
             self, storage_path=self.ai_cctv_path or self.storage_root_path,
             resource_server_url=camera.get('edge_api_base_url'))
+        self.runtime.monitor_pending = True
         self.resource_monitor_window.finished.connect(self.handle_resource_monitor_closed)
         self.resource_monitor_window.show()
         self._set_controls(True)
@@ -545,11 +464,10 @@ class CCTVMainWindow(QMainWindow):
         if self.resource_monitor_window is not None:
             self.resource_monitor_window.deleteLater()
         self.resource_monitor_window = None
+        self.runtime.monitor_pending = False
         self._set_controls(True)
 
     def update_frame(self, frame):
-        self._runtime_status('LIVE')
-
         self.video_label.setStyleSheet(
             "background-color: #0f172a; border-radius: 5px; "
             "font-size: 28px; color: #334155; font-weight: bold;"
@@ -615,12 +533,6 @@ class CCTVMainWindow(QMainWindow):
             "font-weight: bold;"
         )
 
-    def handle_worker_finished(self):
-        if self._stopping or self.worker is None:
-            return
-        self._terminal_error = True
-        self.stop_video()
-
     def update_metrics(self, data):
         self.metric_current["value"].setText(str(data.get("current_objects", 0)))
         self.metric_total["value"].setText(str(data.get("tracked_total", 0)))
@@ -646,7 +558,6 @@ class CCTVMainWindow(QMainWindow):
         elif event_type == "network_failure":
             desc = event.get("message", "네트워크 장애 감지")
             color = "#facc15"
-            self._runtime_status('연결 장애 / 재연결 중')
             self.show_network_failure_screen()
         elif event_type == "network_recovered":
             desc = event.get("message", "장애 복구 영상 저장 완료")

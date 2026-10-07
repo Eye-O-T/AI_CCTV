@@ -63,7 +63,7 @@ class CameraClientTests(unittest.TestCase):
         self.assertEqual(window.selected_camera_id, page.camera_id)
         self.assertIn('정문', window.center_title.text())
         self.assertTrue(window.btn_start.isEnabled())
-        self.assertIsNone(window.worker)
+        self.assertIsNone(window.runtime.worker)
         window._set_controls(True)
         self.assertTrue(window.btn_start.isEnabled())
         page.enabled.setChecked(False)

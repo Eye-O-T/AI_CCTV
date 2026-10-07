@@ -24,7 +24,7 @@ class SettingsWindow(QDialog):
         parent=None,
         video_source=0,
         use_yolo=True,
-        use_vlm=True,
+        use_vlm=False,
         storage_root_path="",
         ai_cctv_path="",
         original_segment_seconds=10,
@@ -37,7 +37,7 @@ class SettingsWindow(QDialog):
         self.camera_page = None
         self.selected_source = video_source
         self.use_yolo = use_yolo
-        self.use_vlm = use_vlm
+        self.use_vlm = False
         self.storage_root_path = storage_root_path
         self.ai_cctv_path = ai_cctv_path
         self.original_segment_seconds = original_segment_seconds
@@ -114,7 +114,7 @@ class SettingsWindow(QDialog):
         layout.addWidget(QLabel("분석 옵션은 이 프로그램의 설정입니다. 카메라 등록 정보와 별도로 적용합니다."))
         self.yolo_checkbox = QCheckBox("YOLO 사람 탐지/추적 사용")
         self.yolo_checkbox.setChecked(self.use_yolo)
-        self.vlm_checkbox = QCheckBox("VLM 의상 분석 사용")
+        self.vlm_checkbox = QCheckBox("VLM 의상 분석 (이번 개발 단계에서는 사용하지 않음)")
         self.vlm_checkbox.setChecked(self.use_yolo and self.use_vlm)
         self.yolo_checkbox.toggled.connect(self.update_ai_mode)
         self.update_ai_mode()
@@ -127,13 +127,12 @@ class SettingsWindow(QDialog):
         return page
 
     def update_ai_mode(self):
-        self.vlm_checkbox.setEnabled(self.yolo_checkbox.isChecked())
-        if not self.yolo_checkbox.isChecked():
-            self.vlm_checkbox.setChecked(False)
+        self.vlm_checkbox.setEnabled(False)
+        self.vlm_checkbox.setChecked(False)
 
     def save_basic_settings(self):
         self.use_yolo = self.yolo_checkbox.isChecked()
-        self.use_vlm = self.use_yolo and self.vlm_checkbox.isChecked()
+        self.use_vlm = False
         self.accept()
 
     def create_empty_page(self, title_text, desc_text):

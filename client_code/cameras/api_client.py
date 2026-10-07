@@ -5,6 +5,22 @@ from PyQt5.QtCore import QObject, QTimer, QUrl, pyqtSignal
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
 
+def valid_camera(value, detail=False):
+    if not isinstance(value, dict):
+        return False
+    if (type(value.get('camera_id')) is not int or value['camera_id'] < 1
+            or not isinstance(value.get('name'), str)
+            or value.get('camera_type') not in ('webcam', 'edge_node')
+            or type(value.get('is_enabled')) is not bool):
+        return False
+    if detail:
+        if value['camera_type'] == 'webcam':
+            return type(value.get('webcam_index')) is int and value['webcam_index'] >= 0
+        return isinstance(value.get('rtsp_url'), str) and bool(value['rtsp_url']) and (
+            value.get('edge_api_base_url') is None or isinstance(value['edge_api_base_url'], str))
+    return True
+
+
 class CameraApiClient(QObject):
     completed = pyqtSignal(object, str, str)
     busy_changed = pyqtSignal(bool)

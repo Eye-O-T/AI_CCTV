@@ -203,7 +203,7 @@ class WindowTests(unittest.TestCase):
         self.session.deadline_timer.stop()
         main = self.controller.main_window
         if main:
-            main._stop_timer.stop()
+            main.runtime._stop_timer.stop()
             main.allow_close = True
             main.close()
             main.deleteLater()
@@ -254,9 +254,9 @@ class WindowTests(unittest.TestCase):
     def test_logout_waits_for_video_and_keeps_server(self):
         self.authenticate()
         main = self.controller.main_window
-        self.assertIsNone(main.worker)
+        self.assertIsNone(main.runtime.worker)
         video = FakeVideo(main)
-        main.worker = video
+        main.runtime.worker = video
         QTest.mouseClick(main.btn_logout, Qt.LeftButton)
         QTest.qWait(150)
         self.assertTrue(video.stop_requested)
@@ -275,12 +275,41 @@ class WindowTests(unittest.TestCase):
         video = FakeVideo(main)
         video.active = False
         video.cleanup_ok = False
-        main.worker = video
+        main.runtime.worker = video
         main.btn_logout.click()
         QTest.qWait(150)
         self.assertIs(self.controller.main_window, main)
         self.assertNotEqual(self.api.calls[-1][0], "logout")
         self.assertIn("실패", main.statusBar().currentMessage())
+
+    def test_session_expiry_waits_for_runtime_cleanup(self):
+        self.authenticate()
+        main = self.controller.main_window
+        video = FakeVideo(main)
+        main.runtime.worker = video
+        self.session.expired.emit('session expired')
+        self.assertTrue(video.stop_requested)
+        self.assertTrue(main.runtime.shutting_down)
+        self.assertNotEqual(self.api.calls[-1][0], 'logout')
+        video.active = False
+        wait_for(lambda: self.api.calls[-1][0] == 'logout')
+        self.api.finish('logout', {})
+        self.assertIsNone(self.controller.main_window)
+        self.assertIn('session expired', self.controller.auth_window.message.text())
+
+    def test_logout_during_detail_cancels_before_session_revocation(self):
+        self.authenticate()
+        main = self.controller.main_window
+        main.runtime.detail_api = MagicMock()
+        camera = dict(camera_id=1, is_enabled=True)
+        main.runtime.request_detail(camera, 'start')
+        self.controller.request_logout()
+        main.runtime.detail_api.cancel.assert_called_once()
+        self.assertIsNone(main.runtime.detail_pending)
+        self.assertNotEqual(self.api.calls[-1][0], 'logout')
+        wait_for(lambda: self.api.calls[-1][0] == 'logout')
+        self.api.finish('logout', {})
+        self.assertIsNone(self.controller.main_window)
 
     def test_close_waits_for_login_then_stops_owned_backend(self):
         self.controller.start()
