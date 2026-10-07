@@ -46,16 +46,28 @@ class FakeWorker(QObject):
         return self.active
 
 
+class FakeCameraApi(QObject):
+    completed = pyqtSignal(object, str, str)
+
+    def __init__(self, session=None, parent=None):
+        super().__init__(parent)
+        self.request = MagicMock(return_value=True)
+        self.cancel = MagicMock()
+
+
 class RuntimeWindowTests(unittest.TestCase):
     def setUp(self):
         self.window = CCTVMainWindow()
-        self.window.runtime.detail_api = MagicMock()
-        self.window.runtime.detail_api.request.return_value = True
+        self.window.runtime.api_factory = FakeCameraApi
+        self.window.runtime.bind_session(object())
         self.window.cameras_received({'items': [CAM]}, '', '')
-        self.window.camera_list.setCurrentRow(0)
+        self.window.camera_list.setCurrentRow(1)
 
     def tearDown(self):
         self.window.runtime._stop_timer.stop()
+        for run in self.window.runtime.runs.values():
+            if run.worker is not None:
+                run.worker.deleteLater()
         self.window.allow_close = True
         self.window.close()
         self.window.deleteLater()
@@ -63,17 +75,18 @@ class RuntimeWindowTests(unittest.TestCase):
 
     def launch(self):
         self.window.start_video()
+        self.run = self.window.runtime.runs[7]
         with patch('workers.video_worker.VideoWorker', FakeWorker):
-            self.window.runtime.camera_detail_received(CAM, '', '')
-        return self.window.runtime.worker
+            self.run.api.completed.emit(CAM, '', '')
+        return self.run.worker
 
     def test_fresh_detail_start_stop_and_late_signals(self):
         worker = self.launch()
-        self.window.runtime.detail_api.request.assert_called_with('GET', '/7')
+        self.run.api.request.assert_called_with('GET', '/7')
         self.assertEqual(worker.values['camera_id'], 7)
         self.assertEqual(worker.values['edge_api_base_url'], CAM['edge_api_base_url'])
         self.assertEqual(worker.values['source'], CAM['rtsp_url'])
-        self.assertFalse(self.window.camera_list.isEnabled())
+        self.assertTrue(self.window.camera_list.isEnabled())
         self.assertFalse(self.window.btn_setting.isEnabled())
         self.assertFalse(self.window.btn_start.isEnabled())
         worker.frame_ready.emit(np.zeros((48, 64, 3), dtype=np.uint8))
@@ -83,56 +96,58 @@ class RuntimeWindowTests(unittest.TestCase):
         worker.event_ready.emit(dict(type='network_failure'))
         worker.event_ready.emit(dict(type='network_recovered'))
         self.assertEqual(self.window.runtime.runtime_states[7], '연결 장애 / 재연결 중')
-        generation = self.window.runtime.run_generation
+        self.assertIsNone(self.window.views[7].pixmap)
         self.window.stop_video()
         self.assertTrue(worker.stop_requested)
         worker.frame_ready.emit(np.zeros((48, 64, 3), dtype=np.uint8))
         self.assertEqual(self.window.runtime.runtime_states[7], '중지 중')
         worker.active = False
         self.window.runtime._poll_stop()
-        self.assertIsNone(self.window.runtime.worker)
+        self.assertNotIn(7, self.window.runtime.runs)
         self.assertEqual(self.window.runtime.runtime_states[7], '중지됨')
         self.assertTrue(self.window.camera_list.isEnabled())
-        self.window.runtime._dispatch_video(generation, self.window.runtime._status, 'LIVE')
+        self.window.runtime._dispatch(self.run, 'status', 'LIVE')
         self.assertEqual(self.window.runtime.runtime_states[7], '중지됨')
 
     def test_disabled_latest_and_cancelled_detail_never_start(self):
         self.window.start_video()
-        self.window.runtime.camera_detail_received(CAM | {'is_enabled': False}, '', '')
-        self.assertIsNone(self.window.runtime.worker)
+        run = self.window.runtime.runs[7]
+        run.api.completed.emit(CAM | {'is_enabled': False}, '', '')
+        self.assertNotIn(7, self.window.runtime.runs)
         self.assertFalse(self.window.btn_start.isEnabled())
         self.window.camera_rows[7] = CAM
         self.window.start_video()
+        run = self.window.runtime.runs[7]
         self.window.stop_video()
-        self.window.runtime.camera_detail_received(CAM, '', '')
-        self.assertIsNone(self.window.runtime.worker)
+        run.api.completed.emit(CAM, '', '')
+        self.assertIsNone(run.worker)
         self.window.runtime._poll_stop()
+        self.assertNotIn(7, self.window.runtime.runs)
 
     def test_detail_error_and_unexpected_worker_finish(self):
         self.window.start_video()
-        self.window.runtime.camera_detail_received(None, 'CONNECTION_ERROR', '')
-        self.assertIsNone(self.window.runtime.worker)
+        self.window.runtime.runs[7].api.completed.emit(None, 'CONNECTION_ERROR', '')
+        self.assertNotIn(7, self.window.runtime.runs)
         self.assertTrue(self.window.btn_start.isEnabled())
         worker = self.launch()
         worker.active = False
         worker.finished.emit()
         self.window.runtime._poll_stop()
         self.assertEqual(self.window.runtime.runtime_states[7], '오류')
-        self.assertIsNone(self.window.runtime.worker)
+        self.assertNotIn(7, self.window.runtime.runs)
 
     def test_monitor_explicit_url_and_stop_waits(self):
-        self.launch()
+        worker = self.launch()
         with patch('ui.gui.ResourceMonitorWindow') as monitor:
             self.window.open_resource_monitor()
             self.assertEqual(monitor.call_args.kwargs['resource_server_url'], CAM['edge_api_base_url'])
         self.window.stop_video()
-        self.window.runtime.worker.active = False
+        worker.active = False
         self.window.runtime._poll_stop()
-        self.assertIsNotNone(self.window.runtime.worker)
-        self.window.resource_monitor_window = None
-        self.window.runtime.monitor_pending = False
+        self.assertIn(7, self.window.runtime.runs)
+        self.window.handle_resource_monitor_closed()
         self.window.runtime._poll_stop()
-        self.assertIsNone(self.window.runtime.worker)
+        self.assertNotIn(7, self.window.runtime.runs)
 
 
 class VideoRuntimeTests(unittest.TestCase):

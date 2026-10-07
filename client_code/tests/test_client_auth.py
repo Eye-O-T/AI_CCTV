@@ -25,6 +25,7 @@ from auth.backend_process import BackendProcess
 from auth.session_manager import SessionManager
 from ui.auth_window import AuthWindow
 from ui.gui import CCTVMainWindow
+from cameras.runtime_manager import CameraRun
 from ui.resource_monitor_window import ResourceMonitorWindow
 from workers.vlm_worker import VLMWorker
 from workers.video_worker import VideoWorker
@@ -254,15 +255,21 @@ class WindowTests(unittest.TestCase):
     def test_logout_waits_for_video_and_keeps_server(self):
         self.authenticate()
         main = self.controller.main_window
-        self.assertIsNone(main.runtime.worker)
+        self.assertFalse(main.runtime.runs)
         video = FakeVideo(main)
-        main.runtime.worker = video
+        main.runtime.runs[1] = CameraRun(dict(camera_id=1, name='test', is_enabled=True), {}, 1, 0, worker=video, pending=False)
+        other = FakeVideo(main)
+        main.runtime.runs[2] = CameraRun(dict(camera_id=2, name='second', is_enabled=True), {}, 2, 1, worker=other, pending=False)
         QTest.mouseClick(main.btn_logout, Qt.LeftButton)
         QTest.qWait(150)
         self.assertTrue(video.stop_requested)
         self.assertNotEqual(self.api.calls[-1][0], "logout")
         self.assertFalse(main.btn_start.isEnabled())
+        self.assertTrue(other.stop_requested)
         video.active = False
+        main.runtime._poll_stop()
+        self.assertNotEqual(self.api.calls[-1][0], 'logout')
+        other.active = False
         wait_for(lambda: self.api.calls[-1][0] == "logout")
         self.api.finish("logout", {})
         self.assertEqual(self.controller.auth_window.mode, "login")
@@ -275,7 +282,7 @@ class WindowTests(unittest.TestCase):
         video = FakeVideo(main)
         video.active = False
         video.cleanup_ok = False
-        main.runtime.worker = video
+        main.runtime.runs[1] = CameraRun(dict(camera_id=1, name='test', is_enabled=True), {}, 1, 0, worker=video, pending=False)
         main.btn_logout.click()
         QTest.qWait(150)
         self.assertIs(self.controller.main_window, main)
@@ -286,7 +293,7 @@ class WindowTests(unittest.TestCase):
         self.authenticate()
         main = self.controller.main_window
         video = FakeVideo(main)
-        main.runtime.worker = video
+        main.runtime.runs[1] = CameraRun(dict(camera_id=1, name='test', is_enabled=True), {}, 1, 0, worker=video, pending=False)
         self.session.expired.emit('session expired')
         self.assertTrue(video.stop_requested)
         self.assertTrue(main.runtime.shutting_down)
@@ -300,12 +307,14 @@ class WindowTests(unittest.TestCase):
     def test_logout_during_detail_cancels_before_session_revocation(self):
         self.authenticate()
         main = self.controller.main_window
-        main.runtime.detail_api = MagicMock()
-        camera = dict(camera_id=1, is_enabled=True)
-        main.runtime.request_detail(camera, 'start')
+        from test_camera_runtime import FakeCameraApi, CAM
+        main.runtime.api_factory = FakeCameraApi
+        main.runtime.bind_session(self.session)
+        main.runtime.request_detail(CAM, 'start')
+        run = main.runtime.runs[7]
         self.controller.request_logout()
-        main.runtime.detail_api.cancel.assert_called_once()
-        self.assertIsNone(main.runtime.detail_pending)
+        run.api.cancel.assert_called_once()
+        self.assertFalse(run.pending)
         self.assertNotEqual(self.api.calls[-1][0], 'logout')
         wait_for(lambda: self.api.calls[-1][0] == 'logout')
         self.api.finish('logout', {})
