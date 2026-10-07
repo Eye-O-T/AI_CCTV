@@ -15,36 +15,18 @@ os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp;stimeout;20000
 
 
 #rtsp 주소 읽어서 tcp로 포트 열려있는지 확인하는 함수.
-def check_server_port_open(rtsp_url, timeout=1.5): #tcp이용해서 rtsp 빨리 재연결할 수 있게함. 이거 없이 rtsp로만하면 최소 재연결에 10초넘게걸림
-    """
-    RTSP 서버의 TCP 포트(기본 8554)가 현재 물리적으로 열려 있는지 사전에 노크해 보는 함수.
-    이 함수를 먼저 거침으로써, 서버가 꺼져 있을 때 OpenCV 비디오 캡처가 30초 동안 굳어버리는 치명적인 문제를 방지합니다.
-    """
+def check_server_port_open(rtsp_url, timeout=1.5):
+    """명시 포트만 TCP 확인한다. 생략한 포트는 영상 백엔드의 기본값에 맡긴다."""
     try:
-        # 1. 입력받은 RTSP URL 주소를 구조별로 분해 (예: rtsp://192.168.99.200:8554/live)
         parsed = urlparse(rtsp_url)
-        hostname = parsed.hostname #192.168.99.200 같은 ip만 떼냄
-        port = parsed.port if parsed.port is not None else 8554 #8554 포트만 떼냄
-        
-        # 만약 urlparse가 올바르게 주소를 잘라내지 못했을 때를 대비한 예외용 백업 파싱 로직
-        if not hostname:
-            clean_url = rtsp_url.replace("rtsp://", "")
-            host_port = clean_url.split("/")[0]
-            if ":" in host_port:
-                hostname, port_str = host_port.split(":")
-                port = int(port_str)
-            else:
-                hostname = host_port
-                port = 8554
-                
-        # 2. 아주 가볍고 빠른 TCP 소켓 통신을 시도합니다. = 노트하는거임.
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)  # 1.5초 안에 응답이 없으면 즉시 끊고 나옵니다.
-        sock.connect((hostname, port))  # 연결 시도 (포트가 열려 있으면 통과, 닫혀 있으면 에러 발생)
-        sock.close()  # 연결 성공 즉시 소켓을 안전하게 닫아줍니다.
-        return True  # 서버 포트가 정상 작동 중임을 알림
-    except Exception:
-        return False  # 접속 불가 상태 (서버 오프라인 또는 네트워크 단선)
+        if not parsed.hostname:
+            return False
+        if parsed.port is None:
+            return True
+        with socket.create_connection((parsed.hostname, parsed.port), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
 
 
 class RTSPReceiver:
@@ -125,7 +107,7 @@ class RTSPReceiver:
         # 2. 영상 프리징 감시 루프 실행 스레드 생성 및 시작
         self.watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True)
         self.watchdog_thread.start()
-        print(f"[*] RTSP Receiver thread and Watchdog started for: {self.rtsp_url}")
+        print("[*] RTSP Receiver thread and Watchdog started")
 
     def _watchdog_loop(self): #tcp노크 성공해서 연결했는데 영상 안들어오는 경우 다수. 그러면 30초 굳어버림. cv2비디오캡처가 그럼. 그래서 5초 이상 영상 안들어오면 소켓 해제.
         """
@@ -150,7 +132,7 @@ class RTSPReceiver:
         """
         was_unreachable = True  # 이전 상태가 접속 불가능했는지 추적하는 플래그 (최초 접속도 불가능으로 간주)
         while self.running:
-            print(f"[i] Attempting to connect to RTSP server: {self.rtsp_url}")
+            print("[i] Attempting to connect to RTSP server")
             
             # 1. 1차 포트 노크 단계: 30초 프리징 방지를 위한 TCP 노크
             if not check_server_port_open(self.rtsp_url, timeout=1.5):
@@ -172,6 +154,7 @@ class RTSPReceiver:
 
             with self.lock:
                 self.cap = cap
+                self.frame = None
                 self.last_frame_time = time.time()
 
             # VideoCapture 오픈에 실패했을 경우 예외 처리
@@ -220,6 +203,7 @@ class RTSPReceiver:
             cap.release()
             with self.lock:
                 self.cap = None
+                self.frame = None
             
             if self.running:
                 time.sleep(self.reconnect_interval)  # 루프 복귀 전 3초 휴식
@@ -230,7 +214,7 @@ class RTSPReceiver:
         - 스레드 세이프(Thread-Safe)하게 락을 획득한 후 수집된 최신 이미지의 사본을 안전하게 꺼내줍니다.
         """
         with self.lock:
-            if self.frame is not None:
+            if self.is_connected and self.frame is not None:
                 return self.frame.copy()  # 원본 이미지의 복제본(사본)을 전달하여 메모리 충돌 방지
             return None
 

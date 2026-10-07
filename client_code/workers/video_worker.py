@@ -2,7 +2,8 @@ import threading
 import time
 import traceback
 from datetime import datetime
-from urllib.parse import urlparse
+from pathlib import Path
+from uuid import uuid4
 
 import cv2
 from PyQt5.QtCore import QThread, pyqtSignal
@@ -19,6 +20,7 @@ from workers.vlm_worker import VLMWorker
 
 
 class VideoWorker(QThread):
+    status_ready = pyqtSignal(str)
     frame_ready = pyqtSignal(object) # 분석이 끝난 프레임을 GUI 화면에 보내기
     metrics_ready = pyqtSignal(dict) # 현재 객체 수, 추적 중인 사람 수 보내기
     event_ready = pyqtSignal(dict) # 오류, 사라짐, VLM 큐 등록 같은 이벤트 보내기
@@ -31,9 +33,14 @@ class VideoWorker(QThread):
         use_vlm=False, # vlm사용여부
         ai_cctv_path="", # 녹화 폴더
         original_segment_seconds=10, # 녹화 간격
-        clip_max_seconds=10 # 클립 최대 길이
+        clip_max_seconds=10, # 클립 최대 길이
+        camera_id=1,
+        edge_api_base_url=None
     ):
         super().__init__()
+        self.camera_id = camera_id
+        self.execution_id = uuid4().hex
+        self.edge_api_base_url = edge_api_base_url
         self.source = source
         self.running = True
         self.use_yolo = use_yolo
@@ -43,9 +50,12 @@ class VideoWorker(QThread):
         self.stream = VideoStream(source=self.source)
         self.tracker = None
         self.full_body_checker = FullBodyChecker()
-        self.crop_manager = CropManager()
+        # 사용자 미디어는 이동하지 않는다. 새 실행의 저장물만 분리한다.
+        root = Path(ai_cctv_path).resolve() if ai_cctv_path else Path(__file__).resolve().parents[1] / 'outputs'
+        self.run_directory = root / 'cameras' / f'camera_{camera_id}' / self.execution_id
+        self.crop_manager = CropManager(save_dir=str(self.run_directory / 'crops'))
         self.state_manager = PersonStateManager(disappear_timeout=3.0)
-        self.ai_cctv_path = ai_cctv_path
+        self.ai_cctv_path = str(self.run_directory) if ai_cctv_path else ''
         self.original_segment_seconds = original_segment_seconds
         self.clip_max_seconds = clip_max_seconds
         self.recording_manager = None
@@ -93,6 +103,7 @@ class VideoWorker(QThread):
     def _run_video(self):
         if not self.running:
             return
+        self.status_ready.emit("연결 중")
         self.loading_ready.emit("영상 스트림 연결 중...")
 
         # 스트림 열기
@@ -120,10 +131,10 @@ class VideoWorker(QThread):
                     disappear_timeout=3.0
                 )
 
-        if getattr(self.stream, "is_rtsp", False) and self.ai_cctv_path:
+        if getattr(self.stream, "is_rtsp", False) and self.ai_cctv_path and self.edge_api_base_url:
             self.recovery_manager = NetworkRecoveryManager(
-                camera_id="cam01",
-                server_url=self._build_recovery_url(self.source),
+                camera_id=f"camera_{self.camera_id}",
+                server_url=self.edge_api_base_url.rstrip("/") + "/recover",
                 base_dir=self.ai_cctv_path,
                 min_failure_seconds=2.0,
                 request_timeout=60,
@@ -164,14 +175,20 @@ class VideoWorker(QThread):
                 if getattr(self.stream, "is_rtsp", False):
                     # RTSP 모드에서는 일시적인 지연이나 재연결 중일 때 프레임이 없을 수 있으므로
                     # 바로 에러를 뿜지 않고 10ms 대기 후 루프를 계속 돕니다.
+                    receiver = getattr(self.stream, 'receiver', None)
+                    if receiver is not None and not receiver.is_connected:
+                        if not getattr(self, '_waiting_notified', False):
+                            self.status_ready.emit('연결 대기 / 재연결 중')
+                            self._waiting_notified = True
                     time.sleep(0.01)
                     continue
 
                 self.event_ready.emit({
                     "type": "error",
-                    "message": "프레임 수신 실패"
+                    "message": "웹캠 프레임 수신 실패. 장치 확인 후 다시 시작하세요."
                 })
-                continue
+                return
+            self._waiting_notified = False
             # RecordingManager가 만들어져있으면 현재 프레임 저장
             # YOLO 바운딩박스 그려지기 전의 프레임 저장
             if self.recording_manager is not None:
@@ -358,13 +375,6 @@ class VideoWorker(QThread):
                 thread.join(timeout=0.2)
         self.cleanup_ok = not self.cleanup_errors
 
-    def _build_recovery_url(self, source):
-        parsed = urlparse(source)
-        host = parsed.hostname
-        if not host:
-            return "http://라즈베리파이IP:8002/recover"
-        return f"http://{host}:8002/recover"
-
     def handle_rtsp_connection_events(self):
         if not self.running:
             return
@@ -448,8 +458,7 @@ class VideoWorker(QThread):
                 "type": "error",
                 "time": datetime.now().strftime("%H:%M:%S"),
                 "message": (
-                    "장애 복구 영상 저장 실패: "
-                    f"{result.get('error', result.get('reason', '알 수 없는 오류'))}"
+                    "장애 복구 영상 저장 실패. 장치 API 연결과 저장 경로를 확인하세요."
                 ),
             })
 

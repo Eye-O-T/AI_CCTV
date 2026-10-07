@@ -15,14 +15,14 @@ class VideoStream:
         self.target_fps = target_fps
         
         # 입력 소스가 rtsp:// 로 시작하는 문자열인지 확인
-        self.is_rtsp = isinstance(self.source, str) and self.source.lower().startswith("rtsp://")
+        self.is_rtsp = isinstance(self.source, str) and self.source.lower().startswith(("rtsp://", "rtsps://"))
         
         # RTSP 모드에서 프레임 중복 방지 및 동기화를 위한 마지막 읽은 프레임 타임스탬프
         self.last_read_frame_time = None
 
     def open(self):
         if self.is_rtsp:
-            print(f"[VideoStream] RTSP 모드 활성화 - 소스: {self.source}")
+            print("[VideoStream] RTSP 모드 활성화")
             self.receiver = RTSPReceiver(rtsp_url=self.source, reconnect_interval=3)
             self.receiver.start()
             return True

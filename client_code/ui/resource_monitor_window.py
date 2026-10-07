@@ -447,7 +447,7 @@ class ResourceMonitorWindow(QDialog):
     def refresh_smart_resources(self):
         if not self.resource_server_url:
             self.summary_label.setText("스마트CCTV 리소스 서버 주소가 설정되지 않았습니다.")
-            self.smart_status_label.setText("RTSP 주소를 설정하면 같은 IP의 8002 포트로 연결합니다.")
+            self.smart_status_label.setText("카메라 관리에서 장치 API 기본 주소를 등록하세요. 로컬 PC 정보는 계속 표시합니다.")
             self.show_smart_network_warning(
                 "스마트CCTV 주소를 찾을 수 없습니다.",
                 "설정에서 RTSP 주소가 rtsp://라즈베리파이IP:포트/경로 형태인지 확인하세요.",

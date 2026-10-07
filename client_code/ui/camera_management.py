@@ -102,7 +102,7 @@ class CameraManagementPage(QWidget):
         self.message.setWordWrap(True)
         self.message.setTextFormat(Qt.PlainText)
         right.addWidget(self.message)
-        note = QLabel('저장은 등록 정보에만 적용됩니다. 영상 실행은 다음 단계에서 지원합니다.')
+        note = QLabel('저장은 등록 정보에 적용됩니다. 관제 화면에서 선택 후 START로 실행하세요.')
         note.setWordWrap(True)
         right.addWidget(note)
         right.addStretch()
