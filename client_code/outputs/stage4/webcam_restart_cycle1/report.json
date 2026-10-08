@@ -1,0 +1,320 @@
+{
+  "label": "webcam_restart_cycle1",
+  "ai_requested": true,
+  "requested_seconds": 12,
+  "warmup_end_seconds": 10.009801200000311,
+  "elapsed_seconds": 23.024216799999977,
+  "stop_seconds": 1.0048013999999057,
+  "input_mode": "registered_device",
+  "samples": [
+    {
+      "elapsed": 1.01,
+      "process_cpu_pct": 7.7,
+      "system_cpu_pct": 11.8,
+      "rss_mb": 391.99609375,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 2.02,
+      "process_cpu_pct": 17.2,
+      "system_cpu_pct": 8.4,
+      "rss_mb": 447.3203125,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 3.01,
+      "process_cpu_pct": 39.1,
+      "system_cpu_pct": 26.4,
+      "rss_mb": 477.86328125,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 4.02,
+      "process_cpu_pct": 25.0,
+      "system_cpu_pct": 6.6,
+      "rss_mb": 522.0859375,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 5.01,
+      "process_cpu_pct": 125.0,
+      "system_cpu_pct": 15.4,
+      "rss_mb": 589.1015625,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 6.01,
+      "process_cpu_pct": 106.2,
+      "system_cpu_pct": 12.0,
+      "rss_mb": 718.16796875,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 7.01,
+      "process_cpu_pct": 60.9,
+      "system_cpu_pct": 11.4,
+      "rss_mb": 1167.15625,
+      "cuda_allocated_mb": 73.029296875
+    },
+    {
+      "elapsed": 8.02,
+      "process_cpu_pct": 39.1,
+      "system_cpu_pct": 7.4,
+      "rss_mb": 1327.390625,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 9.01,
+      "process_cpu_pct": 23.4,
+      "system_cpu_pct": 8.1,
+      "rss_mb": 1340.07421875,
+      "cuda_allocated_mb": 81.890625
+    },
+    {
+      "elapsed": 10.01,
+      "process_cpu_pct": 18.8,
+      "system_cpu_pct": 6.3,
+      "rss_mb": 1342.3046875,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 11.01,
+      "process_cpu_pct": 26.6,
+      "system_cpu_pct": 4.5,
+      "rss_mb": 1342.328125,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 12.01,
+      "process_cpu_pct": 35.9,
+      "system_cpu_pct": 23.1,
+      "rss_mb": 1344.5390625,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 13.01,
+      "process_cpu_pct": 26.6,
+      "system_cpu_pct": 13.6,
+      "rss_mb": 1344.58203125,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 14.02,
+      "process_cpu_pct": 32.8,
+      "system_cpu_pct": 17.4,
+      "rss_mb": 1345.95703125,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 15.01,
+      "process_cpu_pct": 20.3,
+      "system_cpu_pct": 15.1,
+      "rss_mb": 1344.63671875,
+      "cuda_allocated_mb": 83.72607421875
+    },
+    {
+      "elapsed": 16.01,
+      "process_cpu_pct": 20.3,
+      "system_cpu_pct": 4.3,
+      "rss_mb": 1344.71875,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 17.01,
+      "process_cpu_pct": 28.1,
+      "system_cpu_pct": 7.8,
+      "rss_mb": 1359.97265625,
+      "cuda_allocated_mb": 80.953125
+    },
+    {
+      "elapsed": 18.01,
+      "process_cpu_pct": 12.5,
+      "system_cpu_pct": 4.9,
+      "rss_mb": 1363.21875,
+      "cuda_allocated_mb": 83.7294921875
+    },
+    {
+      "elapsed": 19.02,
+      "process_cpu_pct": 28.1,
+      "system_cpu_pct": 8.7,
+      "rss_mb": 1363.3671875,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 20.01,
+      "process_cpu_pct": 26.6,
+      "system_cpu_pct": 4.6,
+      "rss_mb": 1363.37890625,
+      "cuda_allocated_mb": 80.6162109375
+    },
+    {
+      "elapsed": 21.01,
+      "process_cpu_pct": 25.0,
+      "system_cpu_pct": 4.8,
+      "rss_mb": 1363.55859375,
+      "cuda_allocated_mb": 75.796875
+    },
+    {
+      "elapsed": 22.02,
+      "process_cpu_pct": 32.8,
+      "system_cpu_pct": 5.4,
+      "rss_mb": 1363.58203125,
+      "cuda_allocated_mb": 75.234375
+    },
+    {
+      "elapsed": 23.01,
+      "process_cpu_pct": 0.0,
+      "system_cpu_pct": 2.9,
+      "rss_mb": 1303.85546875,
+      "cuda_allocated_mb": 68.296875
+    }
+  ],
+  "gpu_samples": [
+    {
+      "elapsed": 1.0556377000002612,
+      "utilization_pct": 0.0,
+      "used_mb": 561.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 3.235284899999897,
+      "utilization_pct": 0.0,
+      "used_mb": 569.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 5.434299200000169,
+      "utilization_pct": 7.0,
+      "used_mb": 774.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 7.65515940000023,
+      "utilization_pct": 4.0,
+      "used_mb": 996.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 9.818867599999976,
+      "utilization_pct": 14.0,
+      "used_mb": 1000.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 11.99781460000031,
+      "utilization_pct": 15.0,
+      "used_mb": 1000.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 14.22723730000007,
+      "utilization_pct": 41.0,
+      "used_mb": 1000.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 16.397681899999952,
+      "utilization_pct": 10.0,
+      "used_mb": 1000.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 18.577281500000026,
+      "utilization_pct": 28.0,
+      "used_mb": 1000.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 20.73558580000008,
+      "utilization_pct": 13.0,
+      "used_mb": 1000.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 22.919674900000246,
+      "utilization_pct": 1.0,
+      "used_mb": 905.0,
+      "total_mb": 4096.0
+    }
+  ],
+  "cameras": [
+    {
+      "camera_id": 2,
+      "kind": "webcam",
+      "inference_ms": {
+        "mean": 25.937,
+        "p95": 50.836,
+        "max": 72.632
+      },
+      "events": [],
+      "statuses": [
+        "연결 중"
+      ],
+      "read_ms": {
+        "mean": 25.686,
+        "p95": 70.119,
+        "max": 603.741
+      },
+      "input_fps_reported": 24,
+      "inference_device": "cuda:0",
+      "shape": [
+        720,
+        1280,
+        3
+      ],
+      "frames": 207,
+      "first_frame_seconds": 7.910144299999956,
+      "steady_fps": 15.941197911916735,
+      "frame_interval_ms": {
+        "mean": 62.731,
+        "p95": 162.184,
+        "max": 192.23
+      },
+      "max_persons": 2,
+      "cleanup_ok": true,
+      "storage_error_count": 0,
+      "ai_active_at_end": true,
+      "run_directory": "media\\cameras\\camera_2\\a8b50428f90149598ecab4e9fc37c1e3",
+      "media": [
+        {
+          "path": "media\\cameras\\camera_2\\a8b50428f90149598ecab4e9fc37c1e3\\원본 녹화본\\2026-10-08_09-57-14_185120~2026-10-08_09-57-24.mp4",
+          "bytes": 1118766,
+          "decoded_frames": 222,
+          "fps": 24.0,
+          "duration": 9.25
+        },
+        {
+          "path": "media\\cameras\\camera_2\\a8b50428f90149598ecab4e9fc37c1e3\\원본 녹화본\\2026-10-08_09-57-24_224436~2026-10-08_09-57-30.mp4",
+          "bytes": 2451677,
+          "decoded_frames": 160,
+          "fps": 24.0,
+          "duration": 6.666666666666667
+        },
+        {
+          "path": "media\\cameras\\camera_2\\a8b50428f90149598ecab4e9fc37c1e3\\이벤트 CLIP\\2026-10-08_09-57-16_person1_추적영상\\preview.mp4",
+          "bytes": 1392123,
+          "decoded_frames": 240,
+          "fps": 24.0,
+          "duration": 10.0
+        },
+        {
+          "path": "media\\cameras\\camera_2\\a8b50428f90149598ecab4e9fc37c1e3\\이벤트 CLIP\\2026-10-08_09-57-26_person2_추적영상\\preview.mp4",
+          "bytes": 1159156,
+          "decoded_frames": 113,
+          "fps": 24.0,
+          "duration": 4.708333333333333
+        }
+      ],
+      "trajectory_images": [
+        {
+          "path": "media\\cameras\\camera_2\\a8b50428f90149598ecab4e9fc37c1e3\\이벤트 CLIP\\2026-10-08_09-57-16_person1_추적영상\\trajectory.jpg",
+          "decodable": true
+        },
+        {
+          "path": "media\\cameras\\camera_2\\a8b50428f90149598ecab4e9fc37c1e3\\이벤트 CLIP\\2026-10-08_09-57-26_person2_추적영상\\trajectory.jpg",
+          "decodable": true
+        }
+      ]
+    }
+  ]
+}

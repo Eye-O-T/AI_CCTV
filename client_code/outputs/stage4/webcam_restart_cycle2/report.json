@@ -1,0 +1,242 @@
+{
+  "label": "webcam_restart_cycle2",
+  "ai_requested": true,
+  "requested_seconds": 12,
+  "warmup_end_seconds": 3.0073153000003003,
+  "elapsed_seconds": 16.00175309999986,
+  "stop_seconds": 0.9900572999999895,
+  "input_mode": "registered_device",
+  "samples": [
+    {
+      "elapsed": 1.0,
+      "process_cpu_pct": 117.0,
+      "system_cpu_pct": 14.7,
+      "rss_mb": 1351.71484375,
+      "cuda_allocated_mb": 32.0
+    },
+    {
+      "elapsed": 2.01,
+      "process_cpu_pct": 134.4,
+      "system_cpu_pct": 18.7,
+      "rss_mb": 1393.4609375,
+      "cuda_allocated_mb": 84.05419921875
+    },
+    {
+      "elapsed": 3.01,
+      "process_cpu_pct": 26.6,
+      "system_cpu_pct": 9.8,
+      "rss_mb": 1397.33203125,
+      "cuda_allocated_mb": 78.55078125
+    },
+    {
+      "elapsed": 4.0,
+      "process_cpu_pct": 45.3,
+      "system_cpu_pct": 35.0,
+      "rss_mb": 1400.87890625,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 5.01,
+      "process_cpu_pct": 37.5,
+      "system_cpu_pct": 10.2,
+      "rss_mb": 1401.75,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 6.01,
+      "process_cpu_pct": 20.3,
+      "system_cpu_pct": 5.2,
+      "rss_mb": 1401.76953125,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 7.01,
+      "process_cpu_pct": 23.4,
+      "system_cpu_pct": 4.3,
+      "rss_mb": 1401.89453125,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 8.01,
+      "process_cpu_pct": 25.0,
+      "system_cpu_pct": 4.9,
+      "rss_mb": 1405.90234375,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 9.02,
+      "process_cpu_pct": 21.9,
+      "system_cpu_pct": 10.0,
+      "rss_mb": 1402.03125,
+      "cuda_allocated_mb": 74.859375
+    },
+    {
+      "elapsed": 10.01,
+      "process_cpu_pct": 35.9,
+      "system_cpu_pct": 10.4,
+      "rss_mb": 1402.03515625,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 11.0,
+      "process_cpu_pct": 17.2,
+      "system_cpu_pct": 9.5,
+      "rss_mb": 1402.78125,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 12.01,
+      "process_cpu_pct": 25.0,
+      "system_cpu_pct": 8.7,
+      "rss_mb": 1398.875,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 13.01,
+      "process_cpu_pct": 32.8,
+      "system_cpu_pct": 5.2,
+      "rss_mb": 1394.953125,
+      "cuda_allocated_mb": 84.06298828125
+    },
+    {
+      "elapsed": 14.0,
+      "process_cpu_pct": 21.9,
+      "system_cpu_pct": 4.4,
+      "rss_mb": 1394.9609375,
+      "cuda_allocated_mb": 82.6904296875
+    },
+    {
+      "elapsed": 15.01,
+      "process_cpu_pct": 15.6,
+      "system_cpu_pct": 3.4,
+      "rss_mb": 1397.6015625,
+      "cuda_allocated_mb": 68.296875
+    },
+    {
+      "elapsed": 16.0,
+      "process_cpu_pct": 4.7,
+      "system_cpu_pct": 3.1,
+      "rss_mb": 1334.48828125,
+      "cuda_allocated_mb": 68.296875
+    }
+  ],
+  "gpu_samples": [
+    {
+      "elapsed": 0.18832789999987654,
+      "utilization_pct": 0.0,
+      "used_mb": 913.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 2.344865800000207,
+      "utilization_pct": 15.0,
+      "used_mb": 1122.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 4.532597500000065,
+      "utilization_pct": 40.0,
+      "used_mb": 1122.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 6.7022379,
+      "utilization_pct": 11.0,
+      "used_mb": 1122.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 8.858383499999945,
+      "utilization_pct": 33.0,
+      "used_mb": 1122.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 11.05279530000007,
+      "utilization_pct": 18.0,
+      "used_mb": 1122.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 13.20328550000022,
+      "utilization_pct": 50.0,
+      "used_mb": 1122.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 15.39839400000028,
+      "utilization_pct": 3.0,
+      "used_mb": 1122.0,
+      "total_mb": 4096.0
+    }
+  ],
+  "cameras": [
+    {
+      "camera_id": 2,
+      "kind": "webcam",
+      "inference_ms": {
+        "mean": 40.823,
+        "p95": 66.146,
+        "max": 130.588
+      },
+      "events": [],
+      "statuses": [
+        "연결 중"
+      ],
+      "read_ms": {
+        "mean": 63.008,
+        "p95": 75.908,
+        "max": 450.504
+      },
+      "input_fps_reported": 24,
+      "inference_device": "cuda:0",
+      "shape": [
+        720,
+        1280,
+        3
+      ],
+      "frames": 104,
+      "first_frame_seconds": 1.4444094000000405,
+      "steady_fps": 7.556210206950479,
+      "frame_interval_ms": {
+        "mean": 132.341,
+        "p95": 176.4,
+        "max": 213.765
+      },
+      "max_persons": 1,
+      "cleanup_ok": true,
+      "storage_error_count": 0,
+      "ai_active_at_end": true,
+      "run_directory": "media\\cameras\\camera_2\\23665e29136f4c3c9cba9420ad9cbfca",
+      "media": [
+        {
+          "path": "media\\cameras\\camera_2\\23665e29136f4c3c9cba9420ad9cbfca\\원본 녹화본\\2026-10-08_09-57-34_900647~2026-10-08_09-57-44.mp4",
+          "bytes": 1998944,
+          "decoded_frames": 239,
+          "fps": 24.0,
+          "duration": 9.958333333333334
+        },
+        {
+          "path": "media\\cameras\\camera_2\\23665e29136f4c3c9cba9420ad9cbfca\\원본 녹화본\\2026-10-08_09-57-44_996106~2026-10-08_09-57-49.mp4",
+          "bytes": 759110,
+          "decoded_frames": 95,
+          "fps": 24.0,
+          "duration": 3.9583333333333335
+        },
+        {
+          "path": "media\\cameras\\camera_2\\23665e29136f4c3c9cba9420ad9cbfca\\이벤트 CLIP\\2026-10-08_09-57-35_person1_추적영상\\preview.mp4",
+          "bytes": 2035489,
+          "decoded_frames": 240,
+          "fps": 24.0,
+          "duration": 10.0
+        }
+      ],
+      "trajectory_images": [
+        {
+          "path": "media\\cameras\\camera_2\\23665e29136f4c3c9cba9420ad9cbfca\\이벤트 CLIP\\2026-10-08_09-57-35_person1_추적영상\\trajectory.jpg",
+          "decodable": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,336 @@
+{
+  "label": "replay_restart_cycle1",
+  "ai_requested": true,
+  "requested_seconds": 12,
+  "warmup_end_seconds": 6.017125000000306,
+  "elapsed_seconds": 19.026307200000247,
+  "stop_seconds": 1.0085620999998355,
+  "input_mode": "local_recording_replay",
+  "samples": [
+    {
+      "elapsed": 1.02,
+      "process_cpu_pct": 36.9,
+      "system_cpu_pct": 9.0,
+      "rss_mb": 444.6328125,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 2.02,
+      "process_cpu_pct": 46.9,
+      "system_cpu_pct": 8.0,
+      "rss_mb": 500.3515625,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 3.01,
+      "process_cpu_pct": 28.1,
+      "system_cpu_pct": 6.8,
+      "rss_mb": 559.9765625,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 4.02,
+      "process_cpu_pct": 476.7,
+      "system_cpu_pct": 35.9,
+      "rss_mb": 1108.05859375,
+      "cuda_allocated_mb": 172.4951171875
+    },
+    {
+      "elapsed": 5.02,
+      "process_cpu_pct": 58.8,
+      "system_cpu_pct": 9.1,
+      "rss_mb": 1505.359375,
+      "cuda_allocated_mb": 170.75
+    },
+    {
+      "elapsed": 6.02,
+      "process_cpu_pct": 53.1,
+      "system_cpu_pct": 6.2,
+      "rss_mb": 1506.23046875,
+      "cuda_allocated_mb": 153.232421875
+    },
+    {
+      "elapsed": 7.01,
+      "process_cpu_pct": 42.2,
+      "system_cpu_pct": 10.2,
+      "rss_mb": 1507.578125,
+      "cuda_allocated_mb": 152.2529296875
+    },
+    {
+      "elapsed": 8.02,
+      "process_cpu_pct": 46.9,
+      "system_cpu_pct": 7.4,
+      "rss_mb": 1504.23046875,
+      "cuda_allocated_mb": 163.529296875
+    },
+    {
+      "elapsed": 9.02,
+      "process_cpu_pct": 51.6,
+      "system_cpu_pct": 6.2,
+      "rss_mb": 1507.66015625,
+      "cuda_allocated_mb": 167.0
+    },
+    {
+      "elapsed": 10.01,
+      "process_cpu_pct": 43.8,
+      "system_cpu_pct": 6.1,
+      "rss_mb": 1511.67578125,
+      "cuda_allocated_mb": 150.421875
+    },
+    {
+      "elapsed": 11.02,
+      "process_cpu_pct": 45.3,
+      "system_cpu_pct": 6.6,
+      "rss_mb": 1506.41796875,
+      "cuda_allocated_mb": 145.52294921875
+    },
+    {
+      "elapsed": 12.02,
+      "process_cpu_pct": 46.9,
+      "system_cpu_pct": 7.9,
+      "rss_mb": 1505.16796875,
+      "cuda_allocated_mb": 154.3662109375
+    },
+    {
+      "elapsed": 13.02,
+      "process_cpu_pct": 46.9,
+      "system_cpu_pct": 4.8,
+      "rss_mb": 1507.81640625,
+      "cuda_allocated_mb": 151.40625
+    },
+    {
+      "elapsed": 14.01,
+      "process_cpu_pct": 46.9,
+      "system_cpu_pct": 8.5,
+      "rss_mb": 1510.71484375,
+      "cuda_allocated_mb": 151.4365234375
+    },
+    {
+      "elapsed": 15.01,
+      "process_cpu_pct": 37.5,
+      "system_cpu_pct": 6.7,
+      "rss_mb": 1491.48046875,
+      "cuda_allocated_mb": 152.9833984375
+    },
+    {
+      "elapsed": 16.02,
+      "process_cpu_pct": 54.7,
+      "system_cpu_pct": 7.1,
+      "rss_mb": 1494.3125,
+      "cuda_allocated_mb": 158.09375
+    },
+    {
+      "elapsed": 17.01,
+      "process_cpu_pct": 40.6,
+      "system_cpu_pct": 4.0,
+      "rss_mb": 1489.11328125,
+      "cuda_allocated_mb": 159.72265625
+    },
+    {
+      "elapsed": 18.02,
+      "process_cpu_pct": 45.3,
+      "system_cpu_pct": 7.3,
+      "rss_mb": 1491.75390625,
+      "cuda_allocated_mb": 144.96875
+    },
+    {
+      "elapsed": 19.02,
+      "process_cpu_pct": 0.0,
+      "system_cpu_pct": 2.5,
+      "rss_mb": 1287.421875,
+      "cuda_allocated_mb": 136.59375
+    }
+  ],
+  "gpu_samples": [
+    {
+      "elapsed": 1.0170972000000802,
+      "utilization_pct": 0.0,
+      "used_mb": 561.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 3.2084726000002775,
+      "utilization_pct": 0.0,
+      "used_mb": 561.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 5.3880919000002905,
+      "utilization_pct": 30.0,
+      "used_mb": 925.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 7.5632847000001675,
+      "utilization_pct": 33.0,
+      "used_mb": 925.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 9.714071600000352,
+      "utilization_pct": 35.0,
+      "used_mb": 925.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 11.919978600000377,
+      "utilization_pct": 30.0,
+      "used_mb": 925.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 14.094423100000313,
+      "utilization_pct": 36.0,
+      "used_mb": 925.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 16.25366329999997,
+      "utilization_pct": 34.0,
+      "used_mb": 925.0,
+      "total_mb": 4096.0
+    },
+    {
+      "elapsed": 18.393325500000174,
+      "utilization_pct": 0.0,
+      "used_mb": 925.0,
+      "total_mb": 4096.0
+    }
+  ],
+  "cameras": [
+    {
+      "camera_id": 9001,
+      "kind": "replay",
+      "inference_ms": {
+        "mean": 41.554,
+        "p95": 50.868,
+        "max": 55.491
+      },
+      "events": [],
+      "statuses": [
+        "연결 중"
+      ],
+      "read_ms": {
+        "mean": 3.152,
+        "p95": 4.34,
+        "max": 31.571
+      },
+      "input_fps_reported": 24.0,
+      "inference_device": "cuda:0",
+      "shape": [
+        720,
+        1280,
+        3
+      ],
+      "frames": 202,
+      "first_frame_seconds": 4.8299723000000085,
+      "steady_fps": 15.520213785103936,
+      "frame_interval_ms": {
+        "mean": 64.432,
+        "p95": 81.625,
+        "max": 127.848
+      },
+      "max_persons": 1,
+      "cleanup_ok": true,
+      "storage_error_count": 0,
+      "ai_active_at_end": true,
+      "run_directory": "media\\cameras\\camera_9001\\4beaae7933c14122958802f87166ec08",
+      "media": [
+        {
+          "path": "media\\cameras\\camera_9001\\4beaae7933c14122958802f87166ec08\\원본 녹화본\\2026-10-08_09-55-01_116508~2026-10-08_09-55-11.mp4",
+          "bytes": 1705819,
+          "decoded_frames": 240,
+          "fps": 24.0,
+          "duration": 10.0
+        },
+        {
+          "path": "media\\cameras\\camera_9001\\4beaae7933c14122958802f87166ec08\\원본 녹화본\\2026-10-08_09-55-11_143818~2026-10-08_09-55-16.mp4",
+          "bytes": 659303,
+          "decoded_frames": 117,
+          "fps": 24.0,
+          "duration": 4.875
+        },
+        {
+          "path": "media\\cameras\\camera_9001\\4beaae7933c14122958802f87166ec08\\이벤트 CLIP\\2026-10-08_09-55-02_person1_추적영상\\preview.mp4",
+          "bytes": 1725471,
+          "decoded_frames": 240,
+          "fps": 24.0,
+          "duration": 10.0
+        }
+      ],
+      "trajectory_images": [
+        {
+          "path": "media\\cameras\\camera_9001\\4beaae7933c14122958802f87166ec08\\이벤트 CLIP\\2026-10-08_09-55-02_person1_추적영상\\trajectory.jpg",
+          "decodable": true
+        }
+      ]
+    },
+    {
+      "camera_id": 9002,
+      "kind": "replay",
+      "inference_ms": {
+        "mean": 41.805,
+        "p95": 49.29,
+        "max": 61.909
+      },
+      "events": [],
+      "statuses": [
+        "연결 중"
+      ],
+      "read_ms": {
+        "mean": 3.206,
+        "p95": 3.941,
+        "max": 34.691
+      },
+      "input_fps_reported": 24.0,
+      "inference_device": "cuda:0",
+      "shape": [
+        720,
+        1280,
+        3
+      ],
+      "frames": 201,
+      "first_frame_seconds": 4.834406200000103,
+      "steady_fps": 15.438531616422475,
+      "frame_interval_ms": {
+        "mean": 64.773,
+        "p95": 81.893,
+        "max": 100.241
+      },
+      "max_persons": 1,
+      "cleanup_ok": true,
+      "storage_error_count": 0,
+      "ai_active_at_end": true,
+      "run_directory": "media\\cameras\\camera_9002\\8692d4546a75454a8cc2cd5979877b74",
+      "media": [
+        {
+          "path": "media\\cameras\\camera_9002\\8692d4546a75454a8cc2cd5979877b74\\원본 녹화본\\2026-10-08_09-55-01_135390~2026-10-08_09-55-11.mp4",
+          "bytes": 1692385,
+          "decoded_frames": 240,
+          "fps": 24.0,
+          "duration": 10.0
+        },
+        {
+          "path": "media\\cameras\\camera_9002\\8692d4546a75454a8cc2cd5979877b74\\원본 녹화본\\2026-10-08_09-55-11_173753~2026-10-08_09-55-16.mp4",
+          "bytes": 661410,
+          "decoded_frames": 115,
+          "fps": 24.0,
+          "duration": 4.791666666666667
+        },
+        {
+          "path": "media\\cameras\\camera_9002\\8692d4546a75454a8cc2cd5979877b74\\이벤트 CLIP\\2026-10-08_09-55-02_person1_추적영상\\preview.mp4",
+          "bytes": 1710908,
+          "decoded_frames": 240,
+          "fps": 24.0,
+          "duration": 10.0
+        }
+      ],
+      "trajectory_images": [
+        {
+          "path": "media\\cameras\\camera_9002\\8692d4546a75454a8cc2cd5979877b74\\이벤트 CLIP\\2026-10-08_09-55-02_person1_추적영상\\trajectory.jpg",
+          "decodable": true
+        }
+      ]
+    }
+  ]
+}
