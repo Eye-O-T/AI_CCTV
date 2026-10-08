@@ -65,6 +65,7 @@ class VideoWorker(QThread):
         self.recovery_threads = []
         self.cleanup_ok = False
         self.cleanup_errors = []
+        self.storage_errors = []
 
         # vlm켜져있을때만 vlmworker만듦
         self.vlm_worker = None
@@ -94,6 +95,8 @@ class VideoWorker(QThread):
     def run(self):
         try:
             self._run_video()
+        except (OSError, cv2.error):
+            self._report_storage_error("영상 저장 실패. 저장 경로·권한·디스크 공간을 확인하세요.")
         except Exception:
             self.event_ready.emit({"type": "error", "message": "영상 처리 중 오류가 발생했습니다."})
         finally:
@@ -167,16 +170,19 @@ class VideoWorker(QThread):
         else:
             self.loading_ready.emit("실시간 화면 준비 중...")
 
+        last_frame_at = time.monotonic()
         while self.running:
             ret, frame = self.stream.read()
             self.handle_rtsp_connection_events()
+            self._expire_persons()
 
             if not ret:
                 if getattr(self.stream, "is_rtsp", False):
                     # RTSP 모드에서는 일시적인 지연이나 재연결 중일 때 프레임이 없을 수 있으므로
                     # 바로 에러를 뿜지 않고 10ms 대기 후 루프를 계속 돕니다.
                     receiver = getattr(self.stream, 'receiver', None)
-                    if receiver is not None and not receiver.is_connected:
+                    if ((receiver is not None and not receiver.is_connected)
+                            or time.monotonic() - last_frame_at > self.state_manager.disappear_timeout):
                         if not getattr(self, '_waiting_notified', False):
                             self.status_ready.emit('연결 대기 / 재연결 중')
                             self._waiting_notified = True
@@ -189,6 +195,7 @@ class VideoWorker(QThread):
                 })
                 return
             self._waiting_notified = False
+            last_frame_at = time.monotonic()
             # RecordingManager가 만들어져있으면 현재 프레임 저장
             # YOLO 바운딩박스 그려지기 전의 프레임 저장
             if self.recording_manager is not None:
@@ -321,18 +328,7 @@ class VideoWorker(QThread):
                     font_thickness
                 )
             # 사라진 사람 메모리에서 제거 후 업데이트
-            removed_ids = []
-            if self.use_yolo:
-                removed_ids = self.state_manager.remove_disappeared_persons()
-            for removed_id in removed_ids:
-                if self.clip_manager is not None:
-                    self.clip_manager.finish_person(removed_id)
-
-                self.event_ready.emit({
-                    "type": "disappear",
-                    "person_id": removed_id,
-                    "time": datetime.now().strftime("%H:%M:%S")
-                })
+            self._expire_persons()
 
             # 현재 PersonStateManager(상태관리자)에 남아있는 사람 수
             tracked_total = 0
@@ -346,6 +342,18 @@ class VideoWorker(QThread):
             # 바운딩박스와 라벨 그려진 프레임 GUI로 전송
             # CCTVMainWindow.update_frame()에서 이 프레임 받아서 송출
             self.frame_ready.emit(frame)
+
+    def _expire_persons(self):
+        removed_ids = self.state_manager.remove_disappeared_persons()
+        if not removed_ids:
+            return
+        if self.tracker is not None:
+            self.tracker.expire_persons(removed_ids)
+        for person_id in removed_ids:
+            if self.clip_manager is not None:
+                self.clip_manager.finish_person(person_id)
+            self.event_ready.emit({"type": "disappear", "person_id": person_id,
+                                   "time": datetime.now().strftime("%H:%M:%S")})
 
     def _cleanup(self):
         # 이 메서드는 영상 작업 스레드에서 실행하므로 GUI를 기다리게 하지 않는다.
@@ -362,6 +370,7 @@ class VideoWorker(QThread):
                 action()
             except Exception:
                 self.cleanup_errors.append("녹화 또는 클립 마무리 실패")
+                self._report_storage_error("녹화 또는 클립·궤적 저장 마무리 실패. 저장 경로·권한·디스크 공간을 확인하세요.")
         try:
             while not self.stream.release():
                 time.sleep(0.05)
@@ -373,6 +382,8 @@ class VideoWorker(QThread):
         for thread in self.recovery_threads:
             while thread.is_alive():
                 thread.join(timeout=0.2)
+        self.tracker = None
+        self.state_manager.person_states.clear()
         self.cleanup_ok = not self.cleanup_errors
 
     def handle_rtsp_connection_events(self):
@@ -423,6 +434,17 @@ class VideoWorker(QThread):
                     thread.start()
 
     def _run_recovery_request(self, event):
+        try:
+            self._recover(event)
+        except Exception:
+            self._report_storage_error("장애 복구 영상 저장 실패. 장치 API 연결과 저장 경로를 확인하세요.")
+
+    def _report_storage_error(self, message):
+        if message not in self.storage_errors:
+            self.storage_errors.append(message)
+        self.event_ready.emit({"type": "error", "message": message})
+
+    def _recover(self, event):
         if self.recovery_manager is None:
             return
 
@@ -454,13 +476,7 @@ class VideoWorker(QThread):
                 ),
             })
         else:
-            self.event_ready.emit({
-                "type": "error",
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "message": (
-                    "장애 복구 영상 저장 실패. 장치 API 연결과 저장 경로를 확인하세요."
-                ),
-            })
+            self._report_storage_error("장애 복구 영상 저장 실패. 장치 API 연결과 저장 경로를 확인하세요.")
 
     def stop(self):
         self.request_stop()

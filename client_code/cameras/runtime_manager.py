@@ -260,9 +260,14 @@ class CameraRuntimeManager(QObject):
                 run.cleanup_failed = True
                 if self.runtime_states.get(camera_id) != '정리 실패':
                     self._status(run, '정리 실패')
-                    self.notice.emit(camera_id, '작업 정리에 실패했습니다. 재실행·화면 전환을 중단했습니다.')
+                    storage_errors = getattr(run.worker, 'storage_errors', [])
+                    reason = storage_errors[-1] + ' ' if storage_errors else ''
+                    self.notice.emit(camera_id, reason + '작업 정리에 실패했습니다. 재실행·화면 전환을 중단했습니다.')
                 continue
             self._status(run, '오류' if run.terminal_error else '중지됨')
+            storage_errors = getattr(run.worker, 'storage_errors', [])
+            if storage_errors:
+                self.notice.emit(camera_id, storage_errors[-1])
             self._release(run)
             self.stopped.emit(camera_id)
         if not any(r.stopping and not r.cleanup_failed for r in self.runs.values()):

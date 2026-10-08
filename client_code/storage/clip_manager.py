@@ -74,16 +74,23 @@ class ClipManager:
             state["clip_completed"] = True
 
     def finish_person(self, person_id):
-        state = self.person_clips.pop(person_id, None)
+        state = self.person_clips.get(person_id)
         if state is None:
             return
 
         self._close_writer(state)
         self._save_trajectory_image(state)
+        del self.person_clips[person_id]
 
     def finish_all(self):
+        errors = []
         for person_id in list(self.person_clips.keys()):
-            self.finish_person(person_id)
+            try:
+                self.finish_person(person_id)
+            except Exception as error:
+                errors.append(error)
+        if errors:
+            raise OSError("인물 클립 또는 궤적 마무리 실패") from errors[0]
 
     def _create_person_state(self, person_id, frame):
         now = datetime.now()
@@ -128,10 +135,10 @@ class ClipManager:
         self._apply_writer_profile(writer)
 
         if not writer.isOpened():
-            print(f"클립 영상 Writer 생성 실패: {clip_path}")
+            writer.release()
             state["writer"] = None
             state["clip_path"] = None
-            return
+            raise OSError("클립 영상 Writer 생성 실패")
 
         state["writer"] = writer
         state["clip_path"] = clip_path
@@ -236,7 +243,11 @@ class ClipManager:
                 )
 
         save_path = os.path.join(state["folder_path"], "trajectory.jpg")
-        cv2.imwrite(save_path, trajectory_frame)
+        # imencode + tofile also supports Windows paths containing Korean text.
+        encoded, image = cv2.imencode(".jpg", trajectory_frame)
+        if not encoded:
+            raise OSError("궤적 이미지 인코딩 실패")
+        image.tofile(save_path)
 
     def _add_trajectory_point(self, state, bbox):
         state["trajectory_frame_count"] += 1

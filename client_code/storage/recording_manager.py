@@ -40,7 +40,7 @@ class RecordingManager:
         self.frame_size = frame_size # 현재 프레임의 크기 저장
 
         self.start_time = datetime.now()
-        self.start_time_str = self.start_time.strftime("%Y-%m-%d_%H-%M-%S") # 녹화 시작시간 파일 이름 형식에 맞게 변환
+        self.start_time_str = self.start_time.strftime("%Y-%m-%d_%H-%M-%S_%f") # 같은 초의 재연결 파일도 분리
         self.next_frame_time = self.start_time
         self.frames_written = 0
 
@@ -68,9 +68,9 @@ class RecordingManager:
 
         # VideoWriter가 제대로 열리지 않았으면 실패 처리. 성공하면 함수 True반환
         if not self.writer.isOpened():
-            print("원본 영상 저장 Writer 생성 실패")
+            self.writer.release()
             self.writer = None
-            return False
+            raise OSError("원본 영상 저장 Writer 생성 실패")
 
         print(
             f"원본 영상 저장 시작: {self.temp_save_path} "
@@ -174,7 +174,7 @@ class RecordingManager:
             )
 
         except Exception as e:
-            print(f"파일 이름 변경 실패: {e}")
+            raise OSError("원본 영상 파일 이름 변경 실패") from e
 
         # 녹화 끝나면 관련 정보 초기화
         self.start_time = None

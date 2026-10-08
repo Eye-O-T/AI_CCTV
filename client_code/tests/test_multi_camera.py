@@ -148,6 +148,18 @@ class MultiCameraWindowTests(unittest.TestCase):
             self.window.runtime._poll_stop()
             self.assertFalse(self.window.runtime.runs)
 
+    def test_storage_failure_during_stop_is_visible_for_its_camera_only(self):
+        first, second = self.launch(1, CAM), self.launch(2, SECOND)
+        second.worker.frame_ready.emit(np.zeros((48, 64, 3), np.uint8))
+        self.window.runtime.stop(7)
+        first.worker.storage_errors = ['장애 복구 영상 저장 실패']
+        first.worker.active = False
+        self.window.runtime._poll_stop()
+        self.assertIn('저장 실패', self.window.views[7].message.text())
+        self.assertEqual(self.window.views[8].status.text(), 'LIVE')
+        self.assertNotIn('저장 실패', self.window.views[8].message.text())
+        self.assertFalse(second.worker.stop_requested)
+
     def test_resize_keeps_aspect_ratio_and_four_cells(self):
         first, second = self.launch(1, CAM), self.launch(2, SECOND)
         for run in (first, second):
@@ -167,6 +179,19 @@ class MultiCameraWindowTests(unittest.TestCase):
 
 class SyntheticMultiCameraTests(unittest.TestCase):
     def test_two_opencv_sources_keep_running_offscreen_stop_restart_and_record(self):
+        self._run_sources(False)
+
+    def test_two_fake_models_with_real_opencv_storage_stop_and_restart(self):
+        import sys
+        from types import SimpleNamespace
+        from test_tracking_storage import FakeYOLO
+        FakeYOLO.instances = []
+        with patch.dict(sys.modules, {'ultralytics': SimpleNamespace(YOLO=FakeYOLO)}):
+            self._run_sources(True)
+        self.assertEqual(len(FakeYOLO.instances), 3)
+        self.assertTrue(all(model.calls >= 5 for model in FakeYOLO.instances))
+
+    def _run_sources(self, use_yolo):
         with TemporaryDirectory() as temp:
             paths = {}
             for camera_id, color in ((7, 60), (8, 180)):
@@ -180,7 +205,7 @@ class SyntheticMultiCameraTests(unittest.TestCase):
             window = CCTVMainWindow()
             window.runtime.api_factory = FakeCameraApi
             window.runtime.bind_session(object())
-            window.use_yolo = False
+            window.use_yolo = use_yolo
             window.ai_cctv_path = temp
             window.cameras_received({'items': [CAM, SECOND]}, '', '')
             counts = {7: 0, 8: 0}
@@ -228,15 +253,26 @@ class SyntheticMultiCameraTests(unittest.TestCase):
                 wait_for(lambda: not window.runtime.busy)
                 self.assertTrue(all(threads))
                 self.assertEqual(len({w.execution_id for w in workers}), 3)
-                self.assertTrue(all(w.cleanup_ok and not w.use_yolo and w.vlm_worker is None for w in workers))
+                self.assertTrue(all(w.cleanup_ok and w.use_yolo == use_yolo and w.vlm_worker is None for w in workers))
                 for worker in workers:
+                    if use_yolo:
+                        self.assertEqual(len(list(worker.run_directory.rglob('preview.mp4'))), 2)
+                        self.assertEqual(len(list(worker.run_directory.rglob('trajectory.jpg'))), 2)
+                        self.assertFalse(list(worker.run_directory.rglob('full_crop.jpg')))
+                        self.assertIsNone(worker.tracker)
                     videos = list(worker.run_directory.rglob('*.mp4'))
                     self.assertTrue(videos)
-                    capture = cv2.VideoCapture(str(videos[0]))
-                    try:
-                        self.assertTrue(capture.read()[0])
-                    finally:
-                        capture.release()
+                    for video in videos:
+                        capture = cv2.VideoCapture(str(video))
+                        try:
+                            ok, saved = capture.read()
+                            self.assertTrue(ok)
+                            self.assertAlmostEqual(float(saved.mean()), 60 if worker.camera_id == 7 else 180, delta=8)
+                        finally:
+                            capture.release()
+                    for trajectory in worker.run_directory.rglob('trajectory.jpg'):
+                        saved = cv2.imdecode(np.fromfile(trajectory, dtype=np.uint8), cv2.IMREAD_COLOR)
+                        self.assertEqual(saved.shape, (48, 64, 3))
             finally:
                 window.begin_shutdown()
                 wait_for(lambda: not window.runtime.busy)

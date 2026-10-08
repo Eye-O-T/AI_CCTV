@@ -19,6 +19,10 @@ class PersonTracker:
         from ultralytics import YOLO
 
         self.model = YOLO(model_path)
+        self.model.add_callback("on_predict_start", self._prepare_tracker)
+        self.tracking_generation = 0
+        self.last_inference_time = None
+        self.reid_timeout = reid_timeout
         self.target_class = target_class
         self.conf_threshold = conf_threshold
         self.tracker_config = tracker_config
@@ -49,6 +53,14 @@ class PersonTracker:
         ]
         """
 
+        now = time.monotonic()
+        if self.last_inference_time is not None and now - self.last_inference_time > self.reid_timeout:
+            predictor = getattr(self.model, "predictor", None)
+            for tracker in getattr(predictor, "trackers", []):
+                tracker.reset()
+            self.id_mapper.expire(list(self.id_mapper.stable_tracks))
+            self.tracking_generation += 1
+        self.id_mapper.finish_frame()
         try:
             results = self.model.track(
                 frame,
@@ -71,6 +83,7 @@ class PersonTracker:
                 verbose=False
             )
 
+        self.last_inference_time = time.monotonic()
         tracked_persons = []
 
         if results is None or len(results) == 0:
@@ -113,6 +126,24 @@ class PersonTracker:
         self.id_mapper.finish_frame()
         return tracked_persons
 
+    def expire_persons(self, person_ids):
+        # Keep the model and monotonically increasing IDs; discard expired observations.
+        self.id_mapper.expire(person_ids)
+
+    def _prepare_tracker(self, predictor):
+        if hasattr(predictor, "trackers"):
+            return
+        from ultralytics.utils import YAML, IterableSimpleNamespace
+        from ultralytics.utils.checks import check_yaml
+        from detection.isolated_byte_tracker import IsolatedBYTETracker
+
+        config = IterableSimpleNamespace(**YAML.load(check_yaml(self.tracker_config)))
+        if config.tracker_type != "bytetrack":
+            raise ValueError("카메라별 추적은 ByteTrack 설정이 필요합니다.")
+        predictor.trackers = [IsolatedBYTETracker(args=config)]
+        predictor.vid_path = [None]
+        predictor._feats = None
+
 
 class StablePersonIdMapper:
     def __init__(
@@ -134,7 +165,7 @@ class StablePersonIdMapper:
         self._cleanup(now)
 
         stable_id = self.raw_to_stable.get(raw_id)
-        if stable_id in self.stable_tracks:
+        if stable_id in self.stable_tracks and stable_id not in self.used_stable_ids:
             self._update_track(stable_id, raw_id, bbox, now)
             return stable_id
 
@@ -151,6 +182,9 @@ class StablePersonIdMapper:
         self.used_stable_ids.clear()
 
     def _update_track(self, stable_id, raw_id, bbox, now):
+        previous = self.stable_tracks.get(stable_id)
+        if previous is not None and previous["raw_id"] != raw_id:
+            self.raw_to_stable.pop(previous["raw_id"], None)
         self.stable_tracks[stable_id] = {
             "raw_id": raw_id,
             "bbox": bbox,
@@ -190,9 +224,13 @@ class StablePersonIdMapper:
             if now - track["last_seen"] > self.reid_timeout
         }
 
-        for stable_id in expired_stable_ids:
-            del self.stable_tracks[stable_id]
+        self.expire(expired_stable_ids)
 
+    def expire(self, person_ids):
+        expired_stable_ids = set(person_ids)
+        for stable_id in expired_stable_ids:
+            self.stable_tracks.pop(stable_id, None)
+        self.used_stable_ids.difference_update(expired_stable_ids)
         for raw_id, stable_id in list(self.raw_to_stable.items()):
             if stable_id in expired_stable_ids:
                 del self.raw_to_stable[raw_id]
