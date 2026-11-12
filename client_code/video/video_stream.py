@@ -27,7 +27,8 @@ class VideoStream:
             self.receiver.start()
             return True
         else:
-            self.cap = cv2.VideoCapture(self.source)
+            print(f"[CAMERA DEBUG] OpenCV source={self.source!r}", flush=True)
+            self.cap = cv2.VideoCapture(self.source, cv2.CAP_DSHOW)
             if not self.cap.isOpened():
                 print("영상 스트림 연결 실패")
                 return False

@@ -11,7 +11,7 @@ class AuthApiClient(QObject):
 
     def __init__(self, base_url=None, parent=None, timeout_ms=10000):
         super().__init__(parent)
-        self.base_url = (base_url or "http://127.0.0.1:8000").rstrip("/")
+        self.base_url = (base_url or "http://127.0.0.1:9000").rstrip("/")
         self.network = QNetworkAccessManager(self)
         self.timeout_ms = timeout_ms
         self.reply = None

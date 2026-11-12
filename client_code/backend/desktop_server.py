@@ -28,7 +28,7 @@ class DesktopServer(uvicorn.Server):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db-path", type=Path, default=None)
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
     server = DesktopServer(uvicorn.Config(create_app(args.db_path), host="127.0.0.1", port=args.port, access_log=False))
 

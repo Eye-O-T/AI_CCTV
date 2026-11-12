@@ -11,7 +11,7 @@ class BackendProcess(QObject):
     failed = pyqtSignal(str)
     stopped = pyqtSignal()
 
-    def __init__(self, parent=None, db_path=None, port=8000):
+    def __init__(self, parent=None, db_path=None, port=9000):
         super().__init__(parent)
         self.process = QProcess(self)
         self.process.setWorkingDirectory(str(Path(__file__).resolve().parents[2]))
@@ -41,12 +41,14 @@ class BackendProcess(QObject):
         self.timer.start(30000)
 
     def _read(self):
-        self.buffer = (self.buffer + bytes(self.process.readAllStandardOutput()))[-8192:]
+        output = bytes(self.process.readAllStandardOutput())
+        print("[BACKEND]", output.decode("utf-8", errors="replace"), flush=True)
+
+        self.buffer = (self.buffer + output)[-8192:]
         if not self.is_ready and not self.stopping and b"AI_CCTV_BACKEND_READY" in self.buffer:
             self.is_ready = True
             self.timer.stop()
             self.ready.emit()
-
     def _error(self, error):
         if error == QProcess.FailedToStart:
             self.timer.stop()
