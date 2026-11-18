@@ -12,6 +12,13 @@ from storage.crop_collector import CropCollector
 
 
 @dataclass
+class SubmissionState:
+    first_seen: datetime
+    last_sample_at: float
+    finished: bool = False
+
+
+@dataclass
 class CropTask:
     generation: int
     person_id: int
@@ -20,13 +27,7 @@ class CropTask:
     captured_at: datetime
     first_seen: datetime
     image: object
-
-
-@dataclass
-class SubmissionState:
-    first_seen: datetime
-    last_sample_at: float
-    finished: bool = False
+    observation: SubmissionState
 
 
 class CropWorker(Thread):
@@ -66,7 +67,7 @@ class CropWorker(Thread):
             if x2 <= x1 or y2 <= y1:
                 return False
             task = CropTask(self._generation, person_id, tuple(bbox), tuple(frame.shape),
-                            captured_at, state.first_seen, frame[y1:y2, x1:x2].copy())
+                            captured_at, state.first_seen, frame[y1:y2, x1:x2].copy(), state)
             try:
                 self.tasks.put_nowait(task)
             except Full:
@@ -82,6 +83,7 @@ class CropWorker(Thread):
     def remove_person(self, person_id):
         with self._lock:
             self._observations.pop(person_id, None)
+            self._discard_pending(person_id)
 
     def request_stop(self):
         with self._lock:
@@ -89,12 +91,25 @@ class CropWorker(Thread):
             self._observations.clear()
             self._discard_pending()
 
-    def _discard_pending(self):
+    def _discard_pending(self, person_id=None):
+        retained = []
         while True:
             try:
-                self.tasks.get_nowait()
+                task = self.tasks.get_nowait()
             except Empty:
-                return
+                break
+            if person_id is not None and task.person_id != person_id:
+                retained.append(task)
+        for task in retained:
+            self.tasks.put_nowait(task)
+
+    def _current_observation(self, task):
+        with self._lock:
+            state = self._observations.get(task.person_id)
+            if (self._stopping.is_set() or task.generation != self._generation
+                    or state is not task.observation or state.finished):
+                return None
+            return state
 
     def take_results(self):
         results = []
@@ -106,36 +121,46 @@ class CropWorker(Thread):
 
     def run(self):
         generation = self._generation
+        collecting = {}
         try:
             while not self._stopping.is_set():
                 # Collector의 메모리는 이 스레드만 수정한다.
                 with self._lock:
                     current_generation = self._generation
-                    active_ids = set(self._observations)
+                    active = dict(self._observations)
                 if generation != current_generation:
                     self.collector.clear()
+                    collecting.clear()
                     generation = current_generation
                 for person_id in list(self.collector.collections):
-                    if person_id not in active_ids:
+                    if collecting.get(person_id) is not active.get(person_id):
                         self.collector.remove_person(person_id)
+                        collecting.pop(person_id, None)
                 try:
                     task = self.tasks.get(timeout=0.1)
                 except Empty:
                     continue
-                with self._lock:
-                    state = self._observations.get(task.person_id)
-                    if (self._stopping.is_set() or task.generation != self._generation
-                            or state is None or state.finished):
-                        continue
+                state = self._current_observation(task)
+                if state is None:
+                    continue
                 # reset 직후 새 세대 작업을 꺼낸 경우에도 이전 후보와 섞이지 않게 한다.
                 if generation != task.generation:
                     self.collector.clear()
+                    collecting.clear()
                     generation = task.generation
                 if not self.full_body_checker.is_full_body_visible(task.bbox, task.frame_shape):
                     continue
+                # 판정 중에도 STOP·추적 종료·reset이 들어올 수 있다.
+                if self._current_observation(task) is None:
+                    continue
+                if collecting.get(task.person_id) is not state:
+                    self.collector.remove_person(task.person_id)
+                    collecting[task.person_id] = state
                 error = None
                 try:
-                    paths = self.collector.collect_image(task.person_id, task.image, task.first_seen)
+                    paths = self.collector.collect_image(
+                        task.person_id, task.image, task.first_seen,
+                        lambda: self._current_observation(task) is not None)
                 except (OSError, cv2.error):
                     paths = ()
                     error = '인물 crop 저장·품질 처리 실패. output 폴더 권한·디스크 공간을 확인하세요.'

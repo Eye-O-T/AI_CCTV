@@ -365,9 +365,11 @@ class VideoWorker(QThread):
 
     def _poll_crop_results(self):
         for result in self.crop_worker.take_results():
+            if result.get('generation', self._crop_generation) != self._crop_generation:
+                continue
             if result['error']:
                 self._report_storage_error(result['error'])
-            elif result.get('generation') == self._crop_generation:
+            else:
                 print(f'[Crop] 카메라 {self.camera_id}, 인물 {result["person_id"]}: '
                       f'5장 저장 완료 ({result["paths"][0].parent})')
 

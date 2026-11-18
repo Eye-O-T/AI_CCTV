@@ -52,7 +52,7 @@ class CropCollector:
         image = frame[y1:y2, x1:x2]
         return self.collect_image(person_id, image, first_seen=state.first_seen)
 
-    def collect_image(self, person_id, image, first_seen=None):
+    def collect_image(self, person_id, image, first_seen=None, is_active=None):
         """비동기 소비자용: 생산자가 이미 간격을 제한하고 복사한 crop을 평가한다."""
         state = self.collections.get(person_id)
         if state is None:
@@ -64,6 +64,9 @@ class CropCollector:
             return ()
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         if cv2.Laplacian(gray, cv2.CV_64F).var() < self.min_sharpness:
+            return ()
+        # 품질 계산 도중 끝난 관측은 후보 추가·새 저장을 시작하지 않는다.
+        if is_active is not None and not is_active():
             return ()
         # 원본 프레임 변경과 메모리 수명에서 후보를 분리한다.
         state.images.append(image.copy())
