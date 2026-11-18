@@ -616,7 +616,7 @@ PyQt 시작 시 회원가입 창과 로그인 창 중 어느 화면을 표시할
 
 - 모든 경로는 기존 관리자 Access 인증을 요구한다. PC와 Flutter를 별도 권한으로 구분하는 정책은 아직 없으며 이 계약은 PC 내부 처리용이다.
 - ID는 양의 정수, tracking_run_id도 1 이상이다. JSON 정수는 문자열·실수·boolean에서 자동 변환하지 않는다. 정의되지 않은 필드와 읽기 전용 필드는 422로 거부한다.
-- 시각은 시간대가 포함된 ISO 8601 입력을 받고 UTC로 정규화한다. 응답은 기존 규칙대로 UTC `Z` 형식이다. DB 생성·수정 시각은 백엔드가 부여한다.
+- 시각은 시간대가 포함된 ISO 8601 입력을 받고 UTC로 정규화한다. 응답은 기존 규칙대로 UTC `Z` 형식이다. 글로벌 인물의 생성·수정 시각은 백엔드가 부여하며, MVP 이벤트에는 created_at/updated_at을 두지 않는다.
 - feature_vector는 고정 길이 D의 JSON 숫자 배열이다. 정수·실수 숫자는 허용하지만 boolean·문자열·null·NaN·무한대와 중첩 배열은 거부한다.
 - float32 변환 후에도 유한한 비영벡터여야 하며 L2 norm이 1에서 벗어나는 정도가 0.001 이하여야 한다. 잘못된 벡터를 서버가 임의로 자르거나 채우지 않는다.
 - DB에는 little-endian float32 BLOB(4×D 바이트)으로 저장하고 조회 시 JSON 숫자 배열로 복원한다. 모델·가중치·전처리·D는 OSNet 구현 전 공통 설정으로 고정한다. 확정 전 D를 임의로 512 등으로 가정하지 않는다.
@@ -638,9 +638,9 @@ crop 5장 저장 후 호출한다. 5장을 모으지 못하거나 저장에 실�
 | `crop_path` | string | 예 | 저장된 5장 중 첫 이미지의 상대 경로 |
 | `occurred_at` | string | 예 | 대표 crop의 실제 촬영 시각 |
 
-- server_run_id는 요청으로 받지 않고 인증된 현재 서버 실행에서 부여한다. 글로벌 ID·처리 상태·DB 시각도 클라이언트가 지정하지 않는다.
+- server_run_id는 요청으로 받지 않고 인증된 현재 서버 실행에서 부여한다. 생성 요청에서 글로벌 ID·처리 상태는 클라이언트가 지정하지 않는다.
 - tracking_run_id는 같은 서버 실행·카메라에서 중지 후 재시작하거나 추적 ID 체계를 초기화할 때 증가시킨다. Worker 객체가 새로 만들어져도 같은 실행 번호를 재사용하지 않도록 카메라 실행 관리자가 번호를 배정한다. 기존 Worker 내부 generation만으로 이 식별 조건이 충족된다고 가정하지 않는다.
-- 새 이벤트는 global_person_id=NULL, global_match_status=pending이다. CNN·궤적·클립은 DB 설계의 pending/NULL 초기값을 사용하지만 해당 처리 기능이 이번 단계에서 구현됐음을 의미하지 않는다.
+- 새 이벤트는 global_person_id=NULL, global_match_status=pending이다. events는 DB 문서의 MVP 10개 컬럼을 사용하며 CNN·궤적·클립·message·created_at/updated_at 필드는 포함하지 않는다.
 - 신규 생성은 201과 `Location: /api/v1/events/{event_id}`를 반환한다. Location은 식별 경로이며 이번 계약에 별도 GET 상세 API를 추가한다는 뜻은 아니다.
 - 동일 `(server_run_id, camera_id, tracking_run_id, local_person_id)`가 이미 있으면 새 행을 만들지 않는다. crop_path와 정규화한 occurred_at도 같으면 200으로 현재 이벤트 응답을 반환한다. 다르면 409 / EVENT_OBSERVATION_CONFLICT다. 동일 요청 재확인은 파일 존재 검사보다 먼저 처리하여 응답 유실 후 결과 확인이 가능하게 한다.
 - 복합 부분 UNIQUE와 트랜잭션으로 동시 요청의 중복도 막는다. 서버 재시작 후 이전 실행의 생성 요청을 새 작업처럼 재전송하지 않도록 PC가 이전 대기 작업을 비운다.
@@ -658,9 +658,7 @@ crop 5장 저장 후 호출한다. 5장을 모으지 못하거나 저장에 실�
   "crop_path": "camera_1/2026-11-18/person_1_120000000/crop_01.jpg",
   "occurred_at": "2026-11-18T03:00:00.000000Z",
   "global_person_id": null,
-  "global_match_status": "pending",
-  "created_at": "2026-11-18T03:00:01.000000Z",
-  "updated_at": "2026-11-18T03:00:01.000000Z"
+  "global_match_status": "pending"
 }
 ```
 
@@ -691,19 +689,19 @@ OSNetWorker에는 event_id, 카메라·추적 식별 정보, 촬영 시각, 5장
 
 **POST `/api/v1/events/{event_id}/global-match`**
 
-event_id는 양의 정수다. Manager/OSNet 작업이 해당 이벤트의 상태 또는 최종 결정을 전달한다.
+event_id는 양의 정수다. Manager/OSNet 작업은 해당 이벤트의 최종 결과를 전달한다. 추론 시작 요청은 보내지 않으며 처리 중에도 pending을 유지한다. 정상 흐름은 이벤트 생성 1회와 글로벌 ID·상태를 함께 저장하는 결과 요청 1회다. 프레임별 상태 갱신이나 상태 전용 실시간 구독·폴링은 추가하지 않는다. 영상 수신 스레드는 HTTP 응답을 기다리지 않고 별도 작업 큐에서 저장을 처리한다.
 
 | 요청 필드 | 타입 | 필수 | 의미 |
 | --- | --- | --- | --- |
-| `status` | string | 예 | `processing`, `assigned`, `failed`, `interrupted` |
+| `status` | string | 예 | `assigned`, `failed`, `interrupted` |
 | `mode` | string | assigned에서 필수 | `existing` 또는 `new` |
 | `global_person_id` | integer | existing에서 필수 | 연결할 기존 인물 PK |
 | `feature_vector` | number[] | new에서 필수 | 신규 인물의 대표 벡터 |
 
 - `existing`에는 feature_vector를 보내지 않고, `new`에는 global_person_id를 보내지 않는다. 다른 상태에는 status 외 필드를 보내지 않는다. 금지 필드·명시적 null은 422다.
-- 상태 전이는 pending→processing/assigned/failed/interrupted, processing→assigned/failed/interrupted를 허용한다. 같은 processing 재전송은 변경 없이 200이다. assigned/failed/interrupted는 이번 단계의 최종 상태로 재매칭하지 않는다.
+- 상태 전이는 pending→assigned/failed/interrupted만 허용한다. assigned/failed/interrupted는 이번 단계의 최종 상태로 재매칭하지 않는다. processing·deferred·pending은 이 결과 API의 요청 상태로 허용하지 않으며 422로 거부한다.
 - assigned 이후 유효한 assigned 요청이 다시 오면 mode·내용과 관계없이 이미 확정된 이벤트를 200으로 반환하고 데이터·last_seen_at을 바꾸지 않는다. 처음 확정한 결과가 우선이며 새 인물을 추가 생성하거나 다른 ID로 재연결하지 않는다. 호출자는 반환된 ID를 최종 결과로 사용한다.
-- failed/interrupted의 동일 상태 재전송은 200이다. 다른 최종 상태로 변경하거나 assigned를 processing으로 되돌리는 등 금지 전이는 409 / EVENT_MATCH_STATE_CONFLICT다.
+- failed/interrupted의 동일 상태 재전송은 200이다. 다른 최종 상태로 변경하는 금지 전이는 409 / EVENT_MATCH_STATE_CONFLICT다.
 - 대상은 현재 서버 실행에 속한 person_detected 이벤트여야 한다. 과거 실행 결과는 409 / EVENT_RUN_MISMATCH로 거부하며 오류 이벤트는 409 / EVENT_MATCH_NOT_APPLICABLE로 거부한다. 같은 실행에서 추적 종료 후 도착한 저장 완료 관측의 결과는 기록할 수 있지만 Manager는 현재 관측 연결로 다시 활성화하지 않는다.
 
 기존 인물 연결 요청 예:
@@ -712,16 +710,16 @@ event_id는 양의 정수다. Manager/OSNet 작업이 해당 이벤트의 상태
 {"status": "assigned", "mode": "existing", "global_person_id": 1}
 ```
 
-신규 인물은 `status=assigned`, `mode=new`, `feature_vector=길이 D의 정규화 숫자 배열`을 보낸다. 추론 시작은 `{"status":"processing"}`, 이미지 읽기·추론 실패는 `{"status":"failed"}`, 종료 중단은 `{"status":"interrupted"}`로 보낸다.
+신규 인물은 `status=assigned`, `mode=new`, `feature_vector=길이 D의 정규화 숫자 배열`을 보낸다. 이미지 읽기·추론 실패는 `{"status":"failed"}`, 종료 중단은 `{"status":"interrupted"}`로 보낸다.
 
 백엔드 Service는 이벤트를 쓰기 트랜잭션 안에서 확인하고 다음을 한 번에 수행한다.
 
 1. existing이면 존재하는 글로벌 인물을 연결하고 last_seen_at=max(기존 값, 이벤트 occurred_at)으로 갱신한다. 최초 벡터와 updated_at은 유지한다.
 2. new이면 글로벌 인물을 INSERT하여 DB가 ID를 발급한다. created_at=updated_at=현재 DB 등록 시각, last_seen_at=이벤트 occurred_at으로 초기화한다.
-3. 이벤트 global_person_id와 global_match_status=assigned, 이벤트 updated_at을 저장한다. processing/failed/interrupted일 때 글로벌 ID는 NULL이다.
+3. 이벤트 global_person_id와 global_match_status=assigned를 함께 저장한다. failed/interrupted일 때 글로벌 ID는 NULL이다. 이벤트의 별도 수정 시각은 기록하지 않는다.
 4. 신규 인물 생성 또는 이벤트 갱신 중 실패하면 전체 롤백한다. 외래 키는 활성화하며 기존 인물 부재를 신규 등록으로 바꾸지 않는다.
 
-- 성공 200은 앞 절의 공통 이벤트 식별 DTO이며 현재 글로벌 ID·상태를 포함한다. 이 API는 CNN·crop·클립·궤적 필드를 덮어쓰지 않는다.
+- 성공 200은 앞 절의 MVP 10개 필드를 가진 공통 이벤트 식별 DTO이며 현재 글로벌 ID·상태를 포함한다. 이 API는 매칭 관련 필드만 변경하고 crop_path 등 생성 정보를 유지한다.
 - Manager는 저장 성공 후에만 후보·현재 관측 연결을 반영하고 다음 큐 작업을 판단한다. 응답 유실 시 같은 event_id의 같은 요청으로 결과를 확인한다. 확인 전 다음 신규 판단을 진행하지 않는다. 최초 벡터를 알고 있는 new 요청자는 반환된 ID와 요청 벡터로 메모리 후보를 구성할 수 있다.
 - 코사인 유사도·임계값·동시 관측 충돌 검사는 PC Manager 책임이다. 단일 공용 Manager를 전제로 하며 여러 Manager의 독립 매칭을 지원하는 계약은 아니다.
 

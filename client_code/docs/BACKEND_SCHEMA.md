@@ -111,6 +111,8 @@
 
 ## 6. 이벤트: `events`
 
+MVP는 아래 10개 컬럼만 사용한다. CNN·궤적·클립 결과와 개별 처리 상태, message, 이벤트 created_at/updated_at은 해당 기능을 연결할 때 추가 검토한다. 다른 테이블의 시각 컬럼은 유지한다.
+
 | 필드 | 타입 | NULL | 설명 |
 | --- | --- | --- | --- |
 | `event_id` | INTEGER | 불가 | PK, AUTOINCREMENT |
@@ -122,16 +124,7 @@
 | `global_person_id` | INTEGER | 허용 | FK → `global_person_manage.global_person_id`, 초기 NULL |
 | `global_match_status` | TEXT | 불가 | 글로벌 매칭 상태 |
 | `crop_path` | TEXT | 조건부 | 저장된 crop 이미지 상대 경로 |
-| `cnn_status` | TEXT | 불가 | CNN 처리 상태 |
-| `cnn_result` | TEXT(JSON) | 허용 | 초기 NULL, 실제 출력 구조는 미정 |
-| `trajectory_status` | TEXT | 불가 | 이동 궤적 처리 상태 |
-| `trajectory_path` | TEXT | 허용 | 궤적 이미지 상대 경로, 초기 NULL |
-| `clip_status` | TEXT | 불가 | 클립 처리 상태 |
-| `clip_path` | TEXT | 허용 | 클립 영상 상대 경로, 초기 NULL |
-| `message` | TEXT | 허용 | 연결 오류 등 카드 설명 |
 | `occurred_at` | DATETIME | 불가 | 인물: crop 촬영 시각, 오류: 오류 감지 시각 |
-| `created_at` | DATETIME | 불가 | DB 등록 시각 |
-| `updated_at` | DATETIME | 불가 | 마지막 갱신 시각 |
 
 ### 생성 조건
 
@@ -141,15 +134,11 @@
 | crop 경로 | **저장 완료된 경로 필수** | NULL |
 | 글로벌 ID | NULL | NULL |
 | 글로벌 매칭 상태 | pending | not_applicable |
-| CNN·궤적·클립 상태 | pending | not_applicable |
-| CNN 결과·후속 자료 경로 | NULL | NULL |
-| message | 선택 | 상황 설명 |
 
 - 전신·품질 검사를 통과한 crop 5장의 저장 완료 후 인물 이벤트를 생성하고, 반환된 event_id로 OSNet 작업과 결과를 연결한다. 5장을 모으지 못하거나 저장에 실패하면 해당 관측은 이번 매칭 대상에서 제외한다.
 - 5장 중 첫 번째 이미지를 화면 표시용 crop_path로 기록한다. 전체 경로는 OSNetWorker 입력으로 전달하며 별도 사진 테이블이나 경로 배열 컬럼을 추가하지 않는다.
 - 이미지 읽기·특징 추출 실패는 global_match_status=failed로 기록하며 신규 글로벌 인물을 만들지 않는다. 자동 재시도·추가 crop 재평가는 후속 범위다.
-- 준비 전 결과를 정상 판정이나 점수 0으로 채우지 않는다. NULL과 실제 결과를 구분한다.
-- 본 초안은 하나의 이벤트에 대표 crop·궤적 이미지·클립이 각각 하나인 구조다. 여러 클립이나 재분석 이력이 필요하면 별도 논의한다.
+- 오류 이벤트의 고정 안내 문구는 event_type으로 화면에서 표시하고 구체적인 원인은 로그로 확인한다. 오류 이벤트 등록 API는 후속 범위다.
 
 ### 복합 식별 조건
 
@@ -180,14 +169,14 @@ WHERE event_type = 'person_detected'
 
 | 대상 | 허용 상태 |
 | --- | --- |
-| 글로벌 매칭 | pending, processing, assigned, failed, interrupted, not_applicable |
-| CNN·궤적·클립 | pending, processing, ready, failed, interrupted, not_applicable |
+| 인물 이벤트 글로벌 매칭 | pending, assigned, failed, interrupted |
+| 연결 오류 등 비인물 이벤트 | not_applicable |
 
-- `pending`: 대기 / `processing`: 진행. 초기 버전에서는 모호함에 대한 deferred 상태를 사용하지 않는다.
-- `assigned`: 글로벌 ID 결정 / `ready`: 결과·파일 준비 완료.
+- `pending`: 대기 또는 처리 중 / `assigned`: 글로벌 ID 결정.
+- processing·deferred는 사용하지 않는다. 정상 흐름은 이벤트 생성(pending) 한 번과 글로벌 ID·매칭 결과 저장(assigned) 한 번이다. 실패·중단 때만 해당 최종 상태를 기록한다.
+- 상태는 프레임마다 갱신하거나 실시간 조회하지 않는다. 영상 수신 스레드는 API 응답을 기다리지 않고 별도 작업 큐에서 저장을 처리한다. 기존/신규 결정·저장 확인은 공용 Manager가 순차 조정한다.
 - `failed`: 처리 오류 / `interrupted`: 종료·장애로 중단 / `not_applicable`: 해당 없음.
-- `assigned`이면 글로벌 ID가 존재해야 하며 그 외 매칭 상태에서는 NULL이다. `ready`이면 해당 결과 또는 경로가 존재해야 한다.
-- 작업별로 필요한 필드만 PATCH한다. CNN 업데이트가 이미 저장된 클립 경로 등을 NULL로 덮어쓰지 않게 한다.
+- `assigned`이면 글로벌 ID가 존재해야 하며 그 외 매칭 상태에서는 NULL이다. 초기에는 pending에서 assigned/failed/interrupted로 한 번 확정하고 재매칭하지 않는다.
 - 비동기 작업에는 재사용될 수 있는 로컬 ID 대신 `event_id`를 전달한다. 작업 결과·상태 갱신은 해당 이벤트와 실행에 맞는지 확인한다.
 
 ## 7. 글로벌 인물: `global_person_manage` 및 매칭 정책
@@ -238,11 +227,11 @@ WHERE event_type = 'person_detected'
 ## 8. 앱 표시와 API 경계
 
 - 목록 카드: crop 또는 상태 아이콘, 이벤트 종류, 발생 카메라, 발생 시각.
-- 인물 카드 선택: crop, CNN 결과, 궤적, 클립을 표시하는 상세 화면.
-- 오류 등 상태 이벤트: 초기에는 상세 화면 없이 카드 설명으로 끝낸다.
+- MVP 인물 표시는 대표 crop, 글로벌 ID와 매칭 상태를 사용한다. CNN 결과·궤적·클립 상세 표시는 후속 범위다.
+- 오류 등 상태 이벤트는 event_type에 대응하는 고정 안내 문구를 표시한다. DB message 컬럼은 사용하지 않는다.
 - 미완료·실패·중단 자료는 상태에 맞는 기본 표시를 사용한다.
-- 초기 상세 갱신은 주기 조회 방식으로 시작할 수 있다. DB 갱신 자체가 앱 화면 갱신을 보장하지는 않는다.
-- 알림 조건은 글로벌 ID와 crop이 모두 준비된 시점이다. 후속 자료가 완성될 때마다 새 이벤트나 중복 알림을 만들지 않는다.
+- MVP에서 상태 전용 실시간 구독·폴링을 추가하지 않는다. PC는 생성·매칭 API 응답으로 상태를 반영하고, 향후 앱 히스토리 조회 계약은 별도로 정의한다.
+- 향후 알림 조건은 글로벌 ID와 crop이 모두 준비된 시점이다. 알림 전달은 현재 MVP 범위가 아니다.
 - 푸시/앱 실행 중 알림의 전달 방식과 중복 발송 방지·재시도는 아직 미정이다. 알림 테이블이나 서비스를 임의로 추가하지 않는다.
 - 실시간 영상과 저장 미디어에도 접근 제어가 필요하다. 실제 경로·원본 접속 자격증명을 앱 응답에 노출하지 않는다.
 - 히스토리는 `(occurred_at, event_id)`로 안정적으로 정렬·페이지 조회한다. 카메라별 조회 등 실제 쿼리에 맞춰 인덱스를 추가한다.
@@ -259,7 +248,7 @@ WHERE event_type = 'person_detected'
 ```
 
 - 복구 작업을 끝내기 전에 외부 요청을 정상 처리 가능한 상태로 열지 않는다.
-- 이전 실행의 pending·processing 작업은 interrupted로 변경한다. 글로벌 매칭에 deferred는 사용하지 않는다.
+- 이전 실행의 인물 이벤트 중 global_match_status=pending인 항목은 interrupted로 변경한다. processing·deferred는 사용하지 않는다.
 - 완료된 결과·경로·글로벌 연결은 보존한다. 초기에는 중단 작업을 자동 재실행하지 않는다.
 - 백엔드 시작 실패 시 오류와 재시도 경로를 제공한다.
 - 로그인 후 카메라 자동 시작 여부는 별도 정책으로 정한다.
@@ -280,8 +269,8 @@ WHERE event_type = 'person_detected'
 
 ### 파일 처리
 
-- 임시 파일 작성 → 파일 저장 마무리 → 최종 파일명으로 변경 → DB 경로·ready 반영 순서로 처리한다.
-- ready 상태의 자료만 정상 미디어로 제공한다.
+- 임시 파일 작성 → 파일 저장 마무리 → 최종 파일명으로 변경 → 이벤트의 대표 crop 경로 등록 순서로 처리한다. MVP에는 별도 crop 상태 컬럼이 없다.
+- 파일 저장 완료를 확인한 자료만 등록한다. 미디어 조회·송출 API는 후속 범위다.
 - 파일 저장과 DB 커밋은 하나의 원자적 작업이 아니다. 중간 종료로 남는 임시·미참조 파일을 정리하는 정책이 필요하다.
 - 초기에는 미완성 영상을 자동 복구하지 않는다. 정리 시 완료 파일을 무조건 삭제하지 않는다.
 
