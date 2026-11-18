@@ -6,7 +6,7 @@
 - 카메라 구현 범위(2026-10-07): 모델·스키마·Repository·Service·Router 및 등록·목록·상세·부분 수정 API. 임시 DB 자동 테스트와 실제 로컬 HTTP 검증을 완료했다. PyQt 관리는 연결되어 있으며, 2026-10-08 최대 두 카메라 실행·전체/개별 보기까지 구현했다. 클라이언트 동시 실행은 AI OFF 합성 입력으로 검증했으며 실제 장치·YOLO 동시 성능은 미검증이다. Flutter용 영상 송출은 미구현이다.
 - 관리 방식: API 명세는 이 파일 하나에서 관리한다. 카메라·이벤트 등은 합의한 뒤 문서 하단에 `---` 구분선과 독립된 제목으로 추가한다.
 - DB 구조와 저장 경계는 [BACKEND_SCHEMA.md](BACKEND_SCHEMA.md)를 함께 참고한다.
-- 설계 갱신(2026-11-18): 문서 하단에 인물 이벤트 생성·글로벌 인물 조회·매칭 상태/결과 저장 계약을 추가했다. 이 API들과 global_person_manage 모델, OSNetWorker, GlobalPersonManager는 구현 예정이며 기존 인증·카메라 API의 구현 상태와 구분한다.
+- ReID 1~3단계(2026-11-18): 하단의 글로벌 인물 API·모델과 PC 독립 OSNet 추출·공용 Manager의 API 연동을 검증했다. 실제 OSNetWorker·카메라 큐·화면 연결은 미구현이다. 상세 상태는 개발 계획을 따른다.
 
 ## 공통 규칙
 
@@ -282,7 +282,7 @@ Access 인증 헤더는 요구하지 않는다.
 
 ### 7. 이후 명세 추가 범위
 
-카메라 관리 계약은 아래 카메라 API 절에 정의한다. 인물 이벤트와 글로벌 매칭의 초기 계약은 하단 「인물 이벤트·글로벌 인물 API」 절에 정의한다. 오류 이벤트, 이벤트 히스토리·미디어·CNN·궤적·클립 갱신, 비밀번호 변경·영상 송출 API는 후속 범위이며 아직 계약을 정의하지 않았다.
+카메라 관리 계약은 아래 카메라 API 절에 정의한다. 이번 멀티카메라 ReID MVP의 계약은 하단 「글로벌 인물 API」 절에 정의한다. 이벤트 생성·매칭 결과의 이벤트 연결은 후속 단계에서 정의하며 이번 파이프라인은 event_id 없이 동작한다. 이벤트 히스토리·미디어·CNN·궤적·클립 갱신, 비밀번호 변경·영상 송출도 후속 범위다.
 
 ---
 
@@ -595,153 +595,95 @@ PyQt 시작 시 회원가입 창과 로그인 창 중 어느 화면을 표시할
 
 ---
 
-## 인물 이벤트·글로벌 인물 API
+## 글로벌 인물 API — 멀티카메라 ReID MVP
 
 ### 1. 범위와 구현 상태
 
-- 설계일: 2026-11-18. **이 절은 구현 예정 계약이며 구현·테스트 완료를 뜻하지 않는다.**
-- DB 구조는 [BACKEND_SCHEMA.md의 이벤트·글로벌 인물 절](BACKEND_SCHEMA.md#6-이벤트-events)을 따른다. 별도 global_person_manage 테이블을 사용하며 글로벌 ID는 이벤트 ID와 독립적으로 발급한다.
-- 카메라별 CropWorker가 저장한 전신 crop 5장을 카메라별 OSNetWorker가 처리한다. 각 특징을 L2 정규화한 뒤 평균을 구하고 다시 L2 정규화하여 대표 벡터 한 개를 만든다.
-- 공용 GlobalPersonManager 한 개가 제한된 큐에서 비교 → 기존/신규 결정 → API 저장 → 메모리 반영까지 순차 처리한다. 백엔드는 OSNet을 실행하거나 유사도를 계산하지 않고 인증·입력·참조·트랜잭션을 검증한다.
-- 최고 코사인 유사도가 임계값 이상이면 가장 가까운 기존 인물, 미만이거나 후보가 없으면 신규 인물로 처리한다. 같은 카메라의 동시 관측 충돌 후보는 Manager가 제외하고, 동점은 작은 글로벌 ID를 선택한다. 모호함에 대한 deferred는 사용하지 않는다.
-- 이 절에서는 인물 이벤트 생성·글로벌 인물 전체 조회·매칭 상태 및 결과 저장만 정의한다. 오류 이벤트 등록·히스토리 조회·파일 송출·CNN/클립/궤적 갱신·대표 벡터 갱신·인물 삭제 API는 포함하지 않는다.
+- 2026-11-18 1단계: **이 절의 글로벌 인물 DB 모델·3개 API를 구현했다.** 임시 DB의 백엔드 전체 53개와 실제 임시 Uvicorn HTTP 검증을 통과했다. 2단계 독립 OSNet 추출과 3단계 공용 Manager/API 연동을 구현했으며 실제 카메라 큐·PyQt 연결은 미구현이다. 설정·검증 범위는 [GLOBAL_PERSON_DEVELOPMENT_PLAN.md](GLOBAL_PERSON_DEVELOPMENT_PLAN.md)를 따른다.
+- 이번 구현은 카메라별 CropWorker → OSNetWorker → 공용 GlobalPersonManager → 글로벌 인물 DB 저장·화면 표시까지다. 이벤트 생성·event_id·매칭 상태 저장·CNN·미디어 송출은 의존하지 않는다.
+- events의 10컬럼 설계와 글로벌 인물 FK는 후속 이벤트 단계의 설계로 보존한다. 이전에 정의했던 POST /events 및 /events/{event_id}/global-match는 이번 구현 계약에서 제외하고, 이벤트 단계에서 다시 정의한다.
+- Manager 한 개가 비교 → 기존/신규 결정 → API 저장 확인 → 메모리 반영을 순차 처리한다. 백엔드는 특징 추출·유사도 계산을 수행하지 않는다.
+- 비교 가능한 후보의 최고 코사인 유사도가 임계값 이상이면 기존 인물, 미만이거나 후보가 없으면 신규 인물이다. 같은 카메라에서 현재 관측 중인 다른 인물이 사용하는 글로벌 ID는 후보에서 제외하며 동점은 작은 ID를 선택한다. deferred는 사용하지 않는다.
 
 | 기능 | Method | 경로 | 성공 |
 | --- | --- | --- | --- |
-| 인물 이벤트 생성·재확인 | POST | `/api/v1/events` | 신규 201, 기존 200 |
-| 글로벌 인물·대표 벡터 전체 조회 | GET | `/api/v1/global-persons` | 200 |
-| 매칭 상태·결과 저장 | POST | `/api/v1/events/{event_id}/global-match` | 200 |
+| 전체 후보·대표 벡터 조회 | GET | `/api/v1/global-persons` | 200 |
+| 신규 글로벌 인물 등록 | POST | `/api/v1/global-persons` | 신규 201, 동일 요청 재확인 200 |
+| 기존 인물 마지막 관측 갱신 | PATCH | `/api/v1/global-persons/{global_person_id}/last-seen` | 200 |
 
-### 2. 공통 입력·저장 규칙
+### 2. 공통 규칙과 DTO
 
-- 모든 경로는 기존 관리자 Access 인증을 요구한다. PC와 Flutter를 별도 권한으로 구분하는 정책은 아직 없으며 이 계약은 PC 내부 처리용이다.
-- ID는 양의 정수, tracking_run_id도 1 이상이다. JSON 정수는 문자열·실수·boolean에서 자동 변환하지 않는다. 정의되지 않은 필드와 읽기 전용 필드는 422로 거부한다.
-- 시각은 시간대가 포함된 ISO 8601 입력을 받고 UTC로 정규화한다. 응답은 기존 규칙대로 UTC `Z` 형식이다. 글로벌 인물의 생성·수정 시각은 백엔드가 부여하며, MVP 이벤트에는 created_at/updated_at을 두지 않는다.
-- feature_vector는 고정 길이 D의 JSON 숫자 배열이다. 정수·실수 숫자는 허용하지만 boolean·문자열·null·NaN·무한대와 중첩 배열은 거부한다.
-- float32 변환 후에도 유한한 비영벡터여야 하며 L2 norm이 1에서 벗어나는 정도가 0.001 이하여야 한다. 잘못된 벡터를 서버가 임의로 자르거나 채우지 않는다.
-- DB에는 little-endian float32 BLOB(4×D 바이트)으로 저장하고 조회 시 JSON 숫자 배열로 복원한다. 모델·가중치·전처리·D는 OSNet 구현 전 공통 설정으로 고정한다. 확정 전 D를 임의로 512 등으로 가정하지 않는다.
-- 파일 경로는 PC와 백엔드가 공유하는 crop 저장소 기준 상대 경로다. 절대 경로·드라이브 경로·상위 폴더 이동(`..`)을 거부하고 저장소 밖으로 해석되는 경로와 존재하지 않는 파일을 거부한다. 파일 업로드를 대신하는 API는 아니다. 저장소 루트는 구현 시 하나의 설정으로 고정한다.
-- API 오류·로그에 원본 벡터, 요청 전체, 실제 저장소 절대 경로, DB 예외를 노출하지 않는다.
-
-### 3. 인물 이벤트 생성
-
-**POST `/api/v1/events`**
-
-crop 5장 저장 후 호출한다. 5장을 모으지 못하거나 저장에 실패한 관측은 호출하지 않는다.
-
-| 요청 필드 | 타입 | 필수 | 의미 |
-| --- | --- | --- | --- |
-| `event_type` | string | 예 | 이번 계약은 `person_detected`만 허용 |
-| `camera_id` | integer | 예 | 등록된 카메라 |
-| `tracking_run_id` | integer | 예 | 현재 서버 실행·카메라 안의 추적 실행 번호 |
-| `local_person_id` | integer | 예 | 해당 추적 실행의 로컬 인물 ID |
-| `crop_path` | string | 예 | 저장된 5장 중 첫 이미지의 상대 경로 |
-| `occurred_at` | string | 예 | 대표 crop의 실제 촬영 시각 |
-
-- server_run_id는 요청으로 받지 않고 인증된 현재 서버 실행에서 부여한다. 생성 요청에서 글로벌 ID·처리 상태는 클라이언트가 지정하지 않는다.
-- tracking_run_id는 같은 서버 실행·카메라에서 중지 후 재시작하거나 추적 ID 체계를 초기화할 때 증가시킨다. Worker 객체가 새로 만들어져도 같은 실행 번호를 재사용하지 않도록 카메라 실행 관리자가 번호를 배정한다. 기존 Worker 내부 generation만으로 이 식별 조건이 충족된다고 가정하지 않는다.
-- 새 이벤트는 global_person_id=NULL, global_match_status=pending이다. events는 DB 문서의 MVP 10개 컬럼을 사용하며 CNN·궤적·클립·message·created_at/updated_at 필드는 포함하지 않는다.
-- 신규 생성은 201과 `Location: /api/v1/events/{event_id}`를 반환한다. Location은 식별 경로이며 이번 계약에 별도 GET 상세 API를 추가한다는 뜻은 아니다.
-- 동일 `(server_run_id, camera_id, tracking_run_id, local_person_id)`가 이미 있으면 새 행을 만들지 않는다. crop_path와 정규화한 occurred_at도 같으면 200으로 현재 이벤트 응답을 반환한다. 다르면 409 / EVENT_OBSERVATION_CONFLICT다. 동일 요청 재확인은 파일 존재 검사보다 먼저 처리하여 응답 유실 후 결과 확인이 가능하게 한다.
-- 복합 부분 UNIQUE와 트랜잭션으로 동시 요청의 중복도 막는다. 서버 재시작 후 이전 실행의 생성 요청을 새 작업처럼 재전송하지 않도록 PC가 이전 대기 작업을 비운다.
-
-성공 응답의 공통 이벤트 식별 필드:
-
-```json
-{
-  "event_id": 101,
-  "event_type": "person_detected",
-  "server_run_id": 10,
-  "camera_id": 1,
-  "tracking_run_id": 1,
-  "local_person_id": 1,
-  "crop_path": "camera_1/2026-11-18/person_1_120000000/crop_01.jpg",
-  "occurred_at": "2026-11-18T03:00:00.000000Z",
-  "global_person_id": null,
-  "global_match_status": "pending"
-}
-```
-
-응답은 위 필드를 가진 전용 DTO로 구성하며 DB 모델을 그대로 노출하지 않는다.
-
-OSNetWorker에는 event_id, 카메라·추적 식별 정보, 촬영 시각, 5장 전체 경로를 전달한다. 전체 경로는 PC 내부 작업 데이터이며 이 API는 대표 1장 경로만 저장한다. 현재 CropWorker의 결과에는 대표 crop 촬영 시각이 없으므로 구현 시 해당 시각도 보존·전달해야 한다. 파일명 시각이나 최초 관측 시각을 대표 crop 촬영 시각으로 대신하지 않는다.
-
-### 4. 글로벌 인물·대표 벡터 조회
-
-**GET `/api/v1/global-persons`**
-
-- 요청 본문·쿼리 없음. Manager 시작·재시작 시 로그인 후 호출하여 DB의 전체 글로벌 인물을 global_person_id 오름차순으로 읽는다. 초기 졸업작품 규모에서는 페이지네이션·벡터 검색 DB를 추가하지 않는다.
-- 응답: `{"feature_dimension": D, "items": [...]}`. D는 확정한 출력 차원의 실제 정수이며 각 items 항목은 아래 필드를 가진다. 인물이 없으면 items=[]이다.
+- 모든 요청에 기존 관리자 Access 인증을 적용한다. PC와 Flutter의 별도 권한 구분은 없다. Router → Service → Repository 구조를 유지하며 PC는 DB를 직접 수정하지 않는다.
+- 요청에 정의되지 않은 필드·명시적 null을 거부한다. JSON 정수 ID는 양수이며 문자열·실수·boolean에서 자동 변환하지 않는다.
+- observed_at은 실제 crop 관측 시각이다. 시간대를 포함한 ISO 8601을 받고 UTC로 정규화한다. 서버가 created_at·updated_at을 부여하고 응답 날짜는 UTC Z 형식이다.
+- feature_vector는 **정확히 512개**의 JSON 숫자 배열이다. 숫자 정수·실수는 허용하지만 boolean·문자열·null·중첩 배열·NaN·무한대를 거부한다. float32 변환 후 유한한 비영벡터이며 |L2 norm−1| ≤ 0.001이어야 한다.
+- DB 저장은 little-endian float32 BLOB, **2048바이트**다. 백엔드에서 변환하며 조용한 차원 보정·잘라내기·영벡터 대체는 하지 않는다.
+- 기본 프로파일은 OSNet x1.0 / MSMT17 combineall / 256×128 / RGB / mean·std 정규화 / 이미지별 L2 → 5장 평균 → L2다. 상세 값은 개발 계획에 고정한다. 모델·가중치·전처리가 다른 벡터는 길이가 같아도 혼합하지 않는다.
+- 파일 경로·카메라 ID·로컬 ID·작업 ID는 PC의 관측 연결 정보다. 이번 글로벌 인물 API와 테이블에는 저장하지 않는다. 사진 업로드·파일 접근 API를 추가하지 않는다.
+- 글로벌 인물 응답은 아래 전용 DTO다. 벡터는 실제 길이 512의 배열이며 표에서는 전체 숫자를 생략한다.
 
 | 응답 필드 | 타입 | 의미 |
 | --- | --- | --- |
-| `global_person_id` | integer | 글로벌 인물 PK |
-| `feature_vector` | number[] | 길이 D의 대표 벡터 |
-| `created_at` | string | DB 등록 시각 |
-| `updated_at` | string | 벡터 마지막 갱신 시각 |
-| `last_seen_at` | string | 마지막 연결 관측 시각 |
+| `global_person_id` | integer | DB가 발급한 글로벌 ID |
+| `feature_vector` | number[512] | 최초 대표 벡터 |
+| `created_at` | string | 글로벌 인물 DB 등록 시각 |
+| `updated_at` | string | 대표 벡터 갱신 시각. 최초 생성 이후 이번 MVP에서는 유지 |
+| `last_seen_at` | string | 가장 늦은 연결 관측 시각 |
 
-- 벡터 복원이 실패하거나 저장된 길이·수치·norm이 계약과 다르면 500으로 실패한다. 후보를 임의로 누락하거나 빈 목록 성공으로 바꾸지 않는다.
-- 실패하면 후보 초기화를 완료하지 않은 상태로 표시하고 매칭을 시작하지 않는다. 이미 동작 중인 Manager가 매 관측마다 전체를 다시 조회하지 않는다.
-- `Cache-Control: no-store`를 설정한다. 파일 경로는 반환하지 않는다.
+- 벡터·전체 요청·토큰·내부 DB 예외를 오류 응답/로그에 노출하지 않는다. 예상하지 못한 오류는 공통 500이며 원본 입력을 응답에 넣지 않는다.
 
-### 5. 매칭 상태·결과 저장
+### 3. 전체 후보 조회
 
-**POST `/api/v1/events/{event_id}/global-match`**
+**GET `/api/v1/global-persons`**
 
-event_id는 양의 정수다. Manager/OSNet 작업은 해당 이벤트의 최종 결과를 전달한다. 추론 시작 요청은 보내지 않으며 처리 중에도 pending을 유지한다. 정상 흐름은 이벤트 생성 1회와 글로벌 ID·상태를 함께 저장하는 결과 요청 1회다. 프레임별 상태 갱신이나 상태 전용 실시간 구독·폴링은 추가하지 않는다. 영상 수신 스레드는 HTTP 응답을 기다리지 않고 별도 작업 큐에서 저장을 처리한다.
+- 본문·쿼리 없음. 성공 응답은 `{"feature_dimension":512,"items":[]}` 형식이며 items에 글로벌 인물 DTO를 ID 오름차순으로 담는다. 인물이 없으면 빈 배열이다.
+- 초기 졸업작품 규모에서는 전체 조회로 시작하며 페이지네이션·벡터 검색 DB는 추가하지 않는다. Cache-Control: no-store를 적용한다.
+- Manager 시작·재시작 시 인증 후 후보를 복원한 뒤 매칭을 시작한다. 매 관측마다 전체 재조회하지 않는다.
+- 저장된 벡터의 길이·유한성·norm 검증/복원이 실패하면 500이다. 불량 후보를 조용히 누락하거나 빈 목록 성공으로 바꾸지 않는다. 후보 초기화 실패 중에는 매칭을 시작하지 않는다.
+
+### 4. 신규 인물 등록 및 재시도
+
+**POST `/api/v1/global-persons`**
 
 | 요청 필드 | 타입 | 필수 | 의미 |
 | --- | --- | --- | --- |
-| `status` | string | 예 | `assigned`, `failed`, `interrupted` |
-| `mode` | string | assigned에서 필수 | `existing` 또는 `new` |
-| `global_person_id` | integer | existing에서 필수 | 연결할 기존 인물 PK |
-| `feature_vector` | number[] | new에서 필수 | 신규 인물의 대표 벡터 |
+| `request_id` | string(UUID v4) | 예 | 신규 등록 재시도 식별자. 최초 제출 시 한 번 생성 |
+| `feature_vector` | number[512] | 예 | 정규화된 최초 대표 벡터 |
+| `observed_at` | string | 예 | 해당 관측 시각 |
 
-- `existing`에는 feature_vector를 보내지 않고, `new`에는 global_person_id를 보내지 않는다. 다른 상태에는 status 외 필드를 보내지 않는다. 금지 필드·명시적 null은 422다.
-- 상태 전이는 pending→assigned/failed/interrupted만 허용한다. assigned/failed/interrupted는 이번 단계의 최종 상태로 재매칭하지 않는다. processing·deferred·pending은 이 결과 API의 요청 상태로 허용하지 않으며 422로 거부한다.
-- assigned 이후 유효한 assigned 요청이 다시 오면 mode·내용과 관계없이 이미 확정된 이벤트를 200으로 반환하고 데이터·last_seen_at을 바꾸지 않는다. 처음 확정한 결과가 우선이며 새 인물을 추가 생성하거나 다른 ID로 재연결하지 않는다. 호출자는 반환된 ID를 최종 결과로 사용한다.
-- failed/interrupted의 동일 상태 재전송은 200이다. 다른 최종 상태로 변경하는 금지 전이는 409 / EVENT_MATCH_STATE_CONFLICT다.
-- 대상은 현재 서버 실행에 속한 person_detected 이벤트여야 한다. 과거 실행 결과는 409 / EVENT_RUN_MISMATCH로 거부하며 오류 이벤트는 409 / EVENT_MATCH_NOT_APPLICABLE로 거부한다. 같은 실행에서 추적 종료 후 도착한 저장 완료 관측의 결과는 기록할 수 있지만 Manager는 현재 관측 연결로 다시 활성화하지 않는다.
+- Manager가 신규로 판단한 경우에만 호출한다. ID는 클라이언트가 지정하지 않는다. 이 API는 유사도를 재판정하지 않는다.
+- Service 트랜잭션에서 INSERT 후 AUTOINCREMENT ID를 받는다. created_at=updated_at=서버 등록 시각, last_seen_at=observed_at이다. 성공 응답은 글로벌 인물 DTO다.
+- **단일 백엔드 실행의 메모리**에 (인증 사용자 ID, request_id)별 정규화된 입력과 발급 결과를 보관한다. 키·비교·트랜잭션·결과 등록을 잠금으로 조정하여 같은 요청의 동시 등록을 막는다. Repository는 commit하지 않는다.
+- 최초 커밋 성공은 201, 동일 키·동일 float32 벡터 바이트·동일 UTC observed_at 재전송은 200으로 같은 ID와 현재 DTO를 반환한다. 같은 키에 다른 내용이면 409 / GLOBAL_PERSON_REQUEST_CONFLICT다. 실패/롤백한 등록은 성공 기록으로 남기지 않는다.
+- 이 기록은 새 DB 테이블·컬럼을 추가하지 않고 서버 실행 동안 유지한다. 서버 재시작은 키 기록을 초기화하므로 PC도 이전 미확정 작업·request_id를 비운다. 이전 요청을 새 로그인 뒤 자동 재전송하지 않는다. 재시작 후에는 전체 후보를 복원하고 새 관측부터 처리한다.
+- 저장 성공 뒤 응답만 유실됐다면 같은 request_id와 같은 본문으로 재전송한다. 다른 ID를 새로 만들어 재시도하거나 다음 신규 판단을 먼저 진행하지 않는다. 커밋 직후 프로세스가 종료된 경우도 재시작 규칙을 적용한다. 영속적 재시도 이력은 이번 MVP 범위가 아니다.
+- 성공 확인 후 반환된 ID와 최초 벡터를 Manager 후보에 반영한다. 대표 벡터 갱신·삭제 API는 제공하지 않는다.
 
-기존 인물 연결 요청 예:
+### 5. 기존 인물 마지막 관측 갱신
+
+**PATCH `/api/v1/global-persons/{global_person_id}/last-seen`**
 
 ```json
-{"status": "assigned", "mode": "existing", "global_person_id": 1}
+{"observed_at":"2026-11-18T03:00:00.000000Z"}
 ```
 
-신규 인물은 `status=assigned`, `mode=new`, `feature_vector=길이 D의 정규화 숫자 배열`을 보낸다. 이미지 읽기·추론 실패는 `{"status":"failed"}`, 종료 중단은 `{"status":"interrupted"}`로 보낸다.
+- 요청 필드는 observed_at 하나다. 글로벌 인물 부재는 404 / GLOBAL_PERSON_NOT_FOUND이며 신규 인물을 대신 만들지 않는다.
+- Service 트랜잭션 안에서 last_seen_at=max(기존 값, observed_at)으로 갱신한다. 같은/과거 시각을 재전송하면 변경 없이 200이다. 동시 요청도 가장 늦은 시각을 유지한다.
+- feature_vector·created_at·updated_at은 변경하지 않는다. 성공은 글로벌 인물 DTO다.
+- Worker는 첫 5장으로 관측당 대표 벡터 한 개를 만든다. 기존 인물로 연결할 때 한 번 갱신하며 프레임마다 heartbeat를 보내지 않는다. 따라서 last_seen_at은 마지막 프레임 시각이 아니라 **매칭된 관측의 시각**이다.
+- Manager는 저장 확인 후 현재 관측 연결을 반영한다. 영상 스레드는 HTTP 응답을 기다리지 않는다. 실패하면 재확인 전 다음 신규 판단을 멈추되 영상 수신은 유지한다.
 
-백엔드 Service는 이벤트를 쓰기 트랜잭션 안에서 확인하고 다음을 한 번에 수행한다.
-
-1. existing이면 존재하는 글로벌 인물을 연결하고 last_seen_at=max(기존 값, 이벤트 occurred_at)으로 갱신한다. 최초 벡터와 updated_at은 유지한다.
-2. new이면 글로벌 인물을 INSERT하여 DB가 ID를 발급한다. created_at=updated_at=현재 DB 등록 시각, last_seen_at=이벤트 occurred_at으로 초기화한다.
-3. 이벤트 global_person_id와 global_match_status=assigned를 함께 저장한다. failed/interrupted일 때 글로벌 ID는 NULL이다. 이벤트의 별도 수정 시각은 기록하지 않는다.
-4. 신규 인물 생성 또는 이벤트 갱신 중 실패하면 전체 롤백한다. 외래 키는 활성화하며 기존 인물 부재를 신규 등록으로 바꾸지 않는다.
-
-- 성공 200은 앞 절의 MVP 10개 필드를 가진 공통 이벤트 식별 DTO이며 현재 글로벌 ID·상태를 포함한다. 이 API는 매칭 관련 필드만 변경하고 crop_path 등 생성 정보를 유지한다.
-- Manager는 저장 성공 후에만 후보·현재 관측 연결을 반영하고 다음 큐 작업을 판단한다. 응답 유실 시 같은 event_id의 같은 요청으로 결과를 확인한다. 확인 전 다음 신규 판단을 진행하지 않는다. 최초 벡터를 알고 있는 new 요청자는 반환된 ID와 요청 벡터로 메모리 후보를 구성할 수 있다.
-- 코사인 유사도·임계값·동시 관측 충돌 검사는 PC Manager 책임이다. 단일 공용 Manager를 전제로 하며 여러 Manager의 독립 매칭을 지원하는 계약은 아니다.
-
-### 6. 오류 및 구현 검증 기준
-
-인증·검증·서버 오류는 기존 공통 오류 형식을 따른다.
+### 6. 오류와 검증 기준
 
 | HTTP | 오류 코드 | 조건 |
 | --- | --- | --- |
 | 401 | INVALID_ACCESS_TOKEN | Access 누락·만료·무효 |
-| 404 | CAMERA_NOT_FOUND | 등록되지 않은 camera_id |
-| 404 | EVENT_NOT_FOUND | 존재하지 않는 event_id |
-| 404 | GLOBAL_PERSON_NOT_FOUND | existing 대상 인물 부재 |
-| 409 | EVENT_OBSERVATION_CONFLICT | 동일 추적 식별값에 다른 생성 내용 |
-| 409 | EVENT_RUN_MISMATCH | 과거 서버 실행의 이벤트 갱신 |
-| 409 | EVENT_MATCH_NOT_APPLICABLE | 인물 이벤트가 아닌 대상 갱신 |
-| 409 | EVENT_MATCH_STATE_CONFLICT | 허용하지 않은 상태 전이 |
-| 422 | VALIDATION_ERROR | 타입·차원·수치·norm·시각·경로·필드 조합 오류 |
-| 500 | INTERNAL_SERVER_ERROR | DB·벡터 복원 등 예상하지 못한 오류 |
+| 404 | GLOBAL_PERSON_NOT_FOUND | 마지막 관측 갱신 대상 부재 |
+| 409 | GLOBAL_PERSON_REQUEST_CONFLICT | 같은 request_id의 다른 등록 내용 |
+| 422 | VALIDATION_ERROR | UUID·타입·512차원·수치·norm·시각·금지 필드 오류 |
+| 500 | INTERNAL_SERVER_ERROR | DB·저장 벡터 복원 등 내부 오류 |
 
-- 임시 DB에서 5개 테이블·FK·부분 UNIQUE, 벡터 BLOB 왕복, 잘못된 차원/NaN/영벡터, 인증 실패를 확인한다.
-- 신규 인물 생성·기존 연결·last_seen_at의 역행 방지·최초 벡터 유지, 트랜잭션 중간 실패 롤백을 검증한다.
-- 이벤트 생성·신규 매칭의 응답 유실 재전송과 동시 요청에서 중복 행이 생기지 않는지 확인한다. 과거 실행 결과와 금지 전이는 거부되어야 한다.
-- DB 벡터 복원 후 재매칭, 같은 카메라 동시 관측의 ID 충돌 방지, 두 카메라 큐 순서와 실패/종료 처리는 PC 통합 검증으로 구분한다.
-- 같은 사람·다른 사람의 실제 카메라 촬영으로 임계값을 정한다. 문서·단위 테스트만으로 OSNet 정확도나 두 카메라 실시간 성능을 검증했다고 보고하지 않는다.
+- 1단계에서 임시 DB로 신규 등록·조회·float32 BLOB 왕복·관측 시각의 역행 방지·최초 벡터 유지·인증·잘못된 입력을 검증했다. 전체 53개 중 글로벌 인물 신규 검증은 15개다. 아래 검증 기준의 구현 결과와 PC 통합 미검증 범위는 개발 계획의 1단계 인계를 따른다.
+- 동일 등록 재전송/동시 요청의 중복 방지, 같은 키의 다른 내용 거부, 실패 롤백 후 재시도와 DB 성공 뒤 응답 유실을 검증한다.
+- 서버 재시작 뒤 기존 인물 보존·재로그인·후보 복원을 확인한다. 사용자 운영 DB와 backup/을 테스트에 사용하지 않는다.
+- 멀티카메라·늦은 결과·STOP/재시작·동시 관측 충돌은 PC 통합 검증이며 OSNet 실측 정확도와 구분한다.

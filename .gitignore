@@ -14,3 +14,7 @@ client_code/backend/data/
 
 # Camera crop MVP output (local runtime media)
 /output/
+
+# ReID weights are fetched separately with a pinned SHA-256.
+/client_code/reid/weights/*.pth
+/client_code/reid/weights/*.download

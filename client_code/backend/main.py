@@ -14,6 +14,8 @@ from .routers.cameras import router as camera_router
 from .services.camera_service import CameraService
 from .services.auth_service import AuthService
 from .services.server_run_service import ServerRunService
+from .routers.global_persons import router as global_person_router
+from .services.global_person_service import GlobalPersonService
 
 
 def create_app(db_path: Path | None = None) -> FastAPI:
@@ -25,6 +27,7 @@ def create_app(db_path: Path | None = None) -> FastAPI:
             engine, factory = create_database(path)
             run_id = None
             auth = None
+            global_persons = None
             runs = ServerRunService(factory)
             try:
                 Base.metadata.create_all(engine)
@@ -32,8 +35,12 @@ def create_app(db_path: Path | None = None) -> FastAPI:
                 auth = AuthService(factory, run_id)
                 application.state.auth_service = auth
                 application.state.camera_service = CameraService(factory)
+                global_persons = GlobalPersonService(factory)
+                application.state.global_person_service = global_persons
                 yield
             finally:
+                if global_persons is not None:
+                    global_persons.close()
                 if auth is not None:
                     auth.close()
                 try:
@@ -54,7 +61,8 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         location = exc.errors()[0].get("loc", ()) if exc.errors() else ()
         allowed = {"username", "password", "password_confirm", "refresh_token",
                    "camera_id", "name", "camera_type", "webcam_index", "rtsp_url",
-                   "edge_api_base_url", "is_enabled", "created_at", "updated_at"}
+                   "edge_api_base_url", "is_enabled", "created_at", "updated_at",
+                   "global_person_id", "request_id", "feature_vector", "observed_at"}
         field = next((item for item in location if isinstance(item, str) and item in allowed), None)
         error = APIError(422, "VALIDATION_ERROR", "요청 입력을 확인해 주세요.", field)
         return JSONResponse(status_code=422, content=error.body())
@@ -66,6 +74,7 @@ def create_app(db_path: Path | None = None) -> FastAPI:
 
     application.include_router(router)
     application.include_router(camera_router)
+    application.include_router(global_person_router)
 
     @application.get("/health")
     def health():

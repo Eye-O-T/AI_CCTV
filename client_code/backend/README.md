@@ -1,6 +1,6 @@
 # PC CCTV 백엔드
 
-현재 SQLite 기반 최초 가입 필요 여부 조회·최초 회원가입·로그인·로그아웃·토큰 갱신과 `GET /health`가 구현되어 있다. `users`, `server_runs`와 카메라 등록용 `cameras` 모델이 등록되어 서버 시작 시 없는 테이블을 생성한다. Camera 모델·스키마·Repository·Service·Router와 카메라 등록·목록·상세·부분 수정 API를 구현했다. PyQt 인증 화면과 서버 자동 시작·종료는 연결했으며 카메라 PyQt 관리 화면과 단일 카메라 런타임을 연결했다. 이벤트 API는 미구현이다. 클라이언트 실행·연동 검증은 [클라이언트 README](../README.md)를 참고한다.
+현재 SQLite 기반 인증 API 5개, 카메라 관리 API, 글로벌 인물 조회·등록·마지막 관측 갱신 API와 `GET /health`가 구현되어 있다. `users`, `server_runs`, `cameras`, `global_person_manage` 모델이 등록되어 서버 시작 시 없는 테이블을 생성한다. PyQt 인증·카메라 관리와 서버 자동 시작·종료는 연결되어 있다. PC의 독립 OSNet 추출과 공용 Manager/API 연결을 2~3단계에서 구현했으며 글로벌 인물의 실제 카메라 큐·PyQt 연결 및 이벤트 API는 미구현이다. 클라이언트 실행·연동 검증은 [클라이언트 README](../README.md)를 참고한다.
 
 ```text
 backend/
@@ -20,8 +20,8 @@ backend/
 ## 구현 기준
 
 - [백엔드 스키마 및 제약사항](../docs/BACKEND_SCHEMA.md)을 참고한다.
-- 2026-11-18 설계 갱신: 스키마 문서에 global_person_manage를 포함한 5개 테이블 설계를, [통합 API 명세서](../docs/API_SPEC.md#인물-이벤트글로벌-인물-api)에 인물 이벤트 생성·대표 벡터 조회·매칭 저장 계약을 추가했다. 이벤트·글로벌 인물·OSNet 작업을 구현할 때 읽는다. 현재 등록 모델은 여전히 users/server_runs/cameras 3개이며, 새 DB를 실행해도 나머지 2개는 자동 생성되지 않는다. 이 문서 갱신은 기존 DB의 변경·초기화·마이그레이션을 수행하지 않는다.
-- API 구현·클라이언트 연동·검증 전에는 [통합 API 명세서](../docs/API_SPEC.md)를 읽는다. 인증·카메라 관리 API 계약과 구현이 정리되어 있으며, 하단의 인물 이벤트·글로벌 인물 계약은 구현 예정이다. PyQt 목록·등록·수정 및 선택 카메라 실행을 연결했다. 실제 장치 검증 범위는 클라이언트 README에 구분한다.
+- 2026-11-18 ReID 1~3단계: [글로벌 인물 개발 계획](../docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md), [독립 글로벌 인물 API](../docs/API_SPEC.md#글로벌-인물-api--멀티카메라-reid-mvp), [DB 설계](../docs/BACKEND_SCHEMA.md)를 글로벌 인물·OSNet 작업 전에 읽는다. 글로벌 인물 DB/API·PC 독립 OSNet 추출·공용 Manager를 구현했고 다음은 실제 카메라 큐 연결이다. 다음 서버 실행에서 없는 글로벌 인물 테이블이 생성되며 기존 DB 구조의 자동 변경·초기화는 하지 않는다. events는 후속 범위다.
+- API 구현·클라이언트 연동·검증 전에는 [통합 API 명세서](../docs/API_SPEC.md)를 읽는다. 인증·카메라·글로벌 인물 API 계약과 구현이 정리되어 있다. PyQt 목록·등록·수정 및 선택 카메라 실행을 연결했다. 실제 장치 검증 범위는 클라이언트 README에 구분한다.
 - 요청 처리는 Router → Service → Repository 순서로 나눈다.
 - DB 모델과 API 요청·응답 모델을 분리한다.
 - 백엔드는 PyQt 화면이나 YOLO·CNN 모델을 import하지 않는다.
@@ -104,7 +104,7 @@ backend/
 .\venv311\Scripts\python.exe -m pip check
 ```
 
-- 테스트는 `tests/test_auth.py`에 있으며 임시 DB를 사용한다. 실제 관리자 계정을 만들거나 운영 DB를 초기화하지 않는다.
+- 테스트는 `tests/test_auth.py`, `tests/test_camera.py`, `tests/test_camera_api.py`, `tests/test_global_person_api.py`에 있으며 임시 DB를 사용한다. 2026-11-18 전체 53개 통과. 실제 관리자 계정을 만들거나 운영 DB를 초기화하지 않는다.
 - 테스트 의존성은 `tests/requirements.txt`에 선언했다. 현재 환경의 httpx 0.28.1을 재사용했다.
 - 최초 가입 필요 여부 조회는 임시 DB에서 가입 전·후 및 서버 재시작 후 응답, 캐시 금지, DB 오류를 가입 필요로 오인하지 않는 동작을 검증한다. 기존 인증 회귀 검증과 함께 총 18개 테스트를 사용한다.
 - 실제 로컬 Uvicorn HTTP로 `/health`, `/docs` HTML, `/openapi.json`, 가입→로그인→갱신→로그아웃→갱신 거부를 확인했다. 브라우저 Swagger 화면 조작이나 Postman 직접 조작, PyQt·카메라 실행을 검증한 것은 아니다.
@@ -113,7 +113,7 @@ backend/
 ## 남은 범위
 
 - 입력 최대 길이·아이디 문자 정책은 미확정이므로 최소 4자만 적용한다. 아이디는 대소문자를 구분하며 입력을 trim·정규화하지 않는다.
-- 비밀번호 변경, 이벤트 기능, Flutter용 영상 송출은 미구현이다. 카메라 관리 API까지 구현·검증했다.
+- 비밀번호 변경, 이벤트 기능, Flutter용 영상 송출은 미구현이다. 글로벌 인물 저장 API까지 구현·검증했으며 실제 OSNet·매칭·PyQt 연결은 후속 범위다.
 - PyQt는 토큰을 메모리에만 보관하며 영상 작업 종료 후 로그아웃한다. 실제 카메라·GPU 작업 종료 검증은 클라이언트 README의 제한 사항을 참고한다.
 
 

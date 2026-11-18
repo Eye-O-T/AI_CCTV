@@ -8,9 +8,14 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from .errors import APIError
 from .services.auth_service import AuthService
 from .services.camera_service import CameraService
+from .services.global_person_service import GlobalPersonService
 
 
 bearer = HTTPBearer(auto_error=False)
+
+
+def get_global_person_service(request: Request) -> GlobalPersonService:
+    return request.app.state.global_person_service
 
 
 def get_camera_service(request: Request) -> CameraService:

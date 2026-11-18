@@ -1,5 +1,7 @@
 # PC CCTV 클라이언트
 
+멀티카메라 글로벌 인물 ID 작업 전에는 [글로벌 인물 개발 계획](docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md)을 읽는다. 1단계 DB/API(53개), 2단계 OSNet 대표 벡터 추출(16개), 3단계 공용 GlobalPersonManager·HTTP 연동(19개)을 검증했다. 사용법과 가중치 준비는 [reid/README.md](reid/README.md)를 따른다. 다음은 4단계 카메라별 OSNetWorker·큐·관측 수명 연결이며 실제 화면·재식별 정확도 검증은 후속 범위다.
+
 ## Crop 비동기 전환 2단계 (2026-11-18)
 
 카메라별 CropWorker의 격리·STOP/재시작·오류 처리를 검증하고 추적 종료/초기화 경합을 보완했다. 기본 전신 판정·0.5초 간격·크기/선명도 기준·첫 5장 저장·일반 실행의 저장 경로는 1단계와 동일하다. `FullBodyChecker`는 수정하지 않았다. OSNet·새 이벤트·DB/API 기능도 추가하지 않았다.

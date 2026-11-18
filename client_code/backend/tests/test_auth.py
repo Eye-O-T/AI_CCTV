@@ -88,7 +88,7 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(response.json()["error"]["code"], "SIGNUP_CLOSED")
         with closing(sqlite3.connect(self.db_path)) as db:
             names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            self.assertEqual(names, {"users", "server_runs", "cameras", "sqlite_sequence"})
+            self.assertEqual(names, {"users", "server_runs", "cameras", "global_person_manage", "sqlite_sequence"})
             hashed, timestamp = db.execute("SELECT password_hash, created_at FROM users").fetchone()
             self.assertTrue(hashed.startswith("$argon2id$"))
             self.assertNotIn(SIGNUP["password"], hashed)
@@ -265,7 +265,9 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
         self.assertEqual(self.client.get("/docs").status_code, 200)
         paths = create_app(self.db_path).openapi()["paths"]
-        self.assertEqual(set(paths), {"/health", "/api/v1/cameras", "/api/v1/cameras/{camera_id}", *(PREFIX + "/" + name for name in ("signup-status", "signup", "login", "logout", "refresh"))})
+        self.assertEqual(set(paths), {"/health", "/api/v1/cameras", "/api/v1/cameras/{camera_id}",
+                                    "/api/v1/global-persons", "/api/v1/global-persons/{global_person_id}/last-seen",
+                                    *(PREFIX + "/" + name for name in ("signup-status", "signup", "login", "logout", "refresh"))})
         self.assertEqual(DEFAULT_DB_PATH, Path(__file__).resolve().parents[1] / "data" / "ai_cctv.db")
 
 
