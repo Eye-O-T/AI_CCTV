@@ -1,6 +1,50 @@
 # PC CCTV 클라이언트
 
-## Crop 수집 MVP 1단계 (2026-11-15)
+## Crop 비동기 전환 1단계 (2026-11-18)
+
+현재는 각 `VideoWorker`가 `workers/crop_worker.py`의 **독립적인 CropWorker 스레드와 제한 큐**를 소유한다. `storage/crop_collector.py`의 후보 관리·JPEG 저장은 CropWorker 안에서만 실행한다. 이전 동기 수집 구조는 아래 2026-11-15 기록에 남겨 두었다. OSNet·글로벌 ID·이벤트·DB/API 연동은 추가하지 않았다.
+
+```text
+카메라 → VideoWorker (영상 수신·YOLO·ByteTrack)
+             → 인물별 0.5초 간격 crop 복사 → 제한 큐(16개)
+                 → CropWorker (기존 전신 판정·크기·선명도 검사)
+                     → CropCollector (첫 유효 5장 수집·저장)
+```
+
+- **FullBodyChecker 코드와 기본값은 그대로 유지**한다. 원본 bbox와 프레임 크기로 전신 판정을 통과해야 수집한다. 현재 기본값은 프레임 높이 대비 bbox 높이 45% 이상, 화면 가장자리 여백 10px이다. 기존 FULL/PARTIAL 화면 표시도 유지한다.
+- 전신 조건에 추가로 crop 너비 64px·높이 128px 이상, Laplacian 분산 50 이상을 적용한다. 후보끼리 순위를 비교하거나 교체하지 않고 통과한 첫 5장을 저장한다.
+- 간격은 CropWorker의 처리 시각이 아니라 VideoWorker에서의 제출 시각으로 제한한다. 박스·글자를 그리기 전 bbox 복사본에 원본 bbox·프레임 크기·촬영 시각·추적 세대를 함께 전달한다. 실행별 CropWorker 객체가 분리되어 있다.
+- 큐에는 최대 16개의 crop이 대기한다. 가득 차면 새 후보를 건너뛰며 큐 공간이나 평가·저장 완료를 기다리지 않는다. 이미지 복사와 짧은 상태 잠금은 VideoWorker에 남아 있으며 CPU·디스크 경합까지 없어지는 것은 아니다.
+- 저장 완료·실패 상태를 생산자와 공유하여 해당 추적 대상의 추가 제출을 중단한다. 결과는 별도 결과 큐에서 VideoWorker가 확인하여 기존 콘솔 완료 메시지·오류 신호로 전달한다. 후보 이미지와 Collector 상태는 CropWorker만 수정한다.
+- 추적 종료는 해당 대상을 무효화하고, 추적 세대 변경은 대기 작업을 폐기한다. 무효화된 작업은 후보로 반영하지 않는다. STOP/AI 비활성화 시 신규 제출·대기 작업을 중단한다. 이미 처리·저장 중인 작업은 끝날 수 있다. VideoWorker 정리 시 CropWorker 종료까지 확인하며 GUI 스레드에서 join하지 않는다.
+- 저장 위치는 프로젝트 루트 `output/camera_<ID>/날짜/person_<로컬ID>_<시각>/crop_01.jpg`~`crop_05.jpg`로 동일하다. 이름의 날짜·시각은 생산자에서 처음 관측한 시점이다. 원본 녹화·클립·궤적 경로, 레거시 VLM 경로는 변경하지 않았다.
+
+### 실행·확인 방법
+
+실행 디렉터리: `C:\GitHub_Clone\AI_CCTV\client_code`.
+
+```powershell
+..\venv311\Scripts\python.exe main.py
+```
+
+YOLO를 켜고 단일 카메라 START → 기존 FULL 판정을 받는 위치에 사람이 서기 → 콘솔의 5장 저장 완료 메시지와 `output` 이미지 확인 순서로 점검한다. 전신 판정·크기·선명도 기준을 충족하는 관측이 5회 필요하다. 상반신만 보이는 입력은 기존 전신 판정 결과에 따라 탈락할 수 있다. 5장 미만에서 STOP하면 저장하지 않는다. 설정 화면의 저장 경로 지정 없이도 crop 저장은 동작한다.
+
+자동 검증 실행 디렉터리: `C:\GitHub_Clone\AI_CCTV`.
+
+```powershell
+.\venv311\Scripts\python.exe -B -m unittest discover -s client_code/tests -p 'test_crop*.py' -v
+.\venv311\Scripts\python.exe -B -m unittest discover -s client_code/tests -v
+```
+
+### 검증 범위
+
+- crop 관련 자동 테스트 10개 통과: 기존 저장 검증 5개와 비동기 검증 5개. 실제 스레드·JPEG 저장과 합성 프레임을 사용했으며 물리 카메라·운영 DB는 사용하지 않았다.
+- 전체 클라이언트 테스트는 80개 중 77개 통과, 3개 실패다. 이전 동기 구현에서도 확인한 `CAP_DSHOW` 영상 파일 열기 실패로, 단일 합성 영상 재생 및 두 입력 재생 테스트 2개에서 발생한다. 이번 변경에서 `VideoStream`은 수정하지 않았다.
+- 0.5초 제출 제한, 큐 포화 시 후보 건너뛰기, 원본에서 독립된 복사본, 원본 좌표의 기존 전신 판정, 크기·선명도 탈락, 5장 저장 후 추가 제출 중단, 저장 오류 전달을 확인했다.
+- JPEG 저장을 Event로 막은 동안 VideoWorker가 추가 영상 5프레임을 전달하는 것을 확인했다. 저장은 영상 호출자와 다른 스레드에서 실행됐으며 정리 후 스레드가 종료됐다. 영상에 그린 주석이 JPEG에 섞이지 않는 것도 확인했다. 이는 비동기 분리의 동작 검증이며 실제 FPS·지연 개선 수치는 아니다.
+- 실제 카메라의 변경 전후 프레임 갱신 간격·화면 버벅임·crop 품질 확인은 아직 수행하지 않았다. 다음 2단계의 실제 두 카메라 격리·STOP/재시작·장애 시나리오도 미검증이다. 후보 선정 개선과 OSNet은 이후 단계다.
+
+## 이전 기록: 동기 Crop 수집 MVP 1단계 (2026-11-15)
 
 각 카메라의 `VideoWorker`가 일반 클래스인 `storage/crop_collector.py`의 `CropCollector`를 각각 소유한다. 별도 crop 스레드·공유 큐 없이 기존 영상 작업 스레드에서 실행한다. **VLM OFF 상태에서도 YOLO가 켜져 있으면 crop을 수집한다.** 아래 다중카메라 개발 기록에서 crop을 후속 범위로 적은 내용은 이전 단계 당시의 기록이다. OSNet·글로벌 ID·새 이벤트·DB/API 연동은 아직 구현하지 않았다.
 

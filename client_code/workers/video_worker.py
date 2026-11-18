@@ -14,10 +14,10 @@ from detection.person_tracker import PersonTracker
 from recovery.network_recovery_manager import NetworkRecoveryManager
 from storage.clip_manager import ClipManager
 from storage.crop_manager import CropManager
-from storage.crop_collector import CropCollector
 from storage.recording_manager import RecordingManager
 from video.video_stream import VideoStream
 from workers.vlm_worker import VLMWorker
+from workers.crop_worker import CropWorker
 
 
 class VideoWorker(QThread):
@@ -55,7 +55,7 @@ class VideoWorker(QThread):
         root = Path(ai_cctv_path).resolve() if ai_cctv_path else Path(__file__).resolve().parents[1] / 'outputs'
         self.run_directory = root / 'cameras' / f'camera_{camera_id}' / self.execution_id
         self.crop_manager = CropManager(save_dir=str(self.run_directory / 'crops'))
-        self.crop_collector = CropCollector(camera_id=camera_id)
+        self.crop_worker = CropWorker(camera_id=camera_id)
         self._crop_generation = 0
         self.state_manager = PersonStateManager(disappear_timeout=3.0)
         self.ai_cctv_path = str(self.run_directory) if ai_cctv_path else ''
@@ -79,7 +79,7 @@ class VideoWorker(QThread):
         self.use_yolo = False
         self.use_vlm = False
         self.tracker = None
-        self.crop_collector.clear()
+        self.crop_worker.request_stop()
 
         if self.vlm_worker is not None:
             self.vlm_worker.request_stop()
@@ -174,8 +174,12 @@ class VideoWorker(QThread):
         else:
             self.loading_ready.emit("실시간 화면 준비 중...")
 
+        if self.running and self.use_yolo:
+            self.crop_worker.start()
+
         last_frame_at = time.monotonic()
         while self.running:
+            self._poll_crop_results()
             ret, frame = self.stream.read()
             self.handle_rtsp_connection_events()
             self._expire_persons()
@@ -354,16 +358,18 @@ class VideoWorker(QThread):
     def _collect_crops(self, frame, persons):
         generation = self.tracker.tracking_generation
         if generation != self._crop_generation:
-            self.crop_collector.clear()
+            self.crop_worker.reset(generation)
             self._crop_generation = generation
         for person in persons:
-            try:
-                paths = self.crop_collector.collect(person['person_id'], frame, person['bbox'])
-            except (OSError, cv2.error):
-                self._report_storage_error('인물 crop 저장 실패. output 폴더 권한·디스크 공간을 확인하세요.')
-                continue
-            if paths:
-                print(f'[Crop] 카메라 {self.camera_id}, 인물 {person["person_id"]}: 5장 저장 완료 ({paths[0].parent})')
+            self.crop_worker.submit(person['person_id'], frame, person['bbox'])
+
+    def _poll_crop_results(self):
+        for result in self.crop_worker.take_results():
+            if result['error']:
+                self._report_storage_error(result['error'])
+            elif result.get('generation') == self._crop_generation:
+                print(f'[Crop] 카메라 {self.camera_id}, 인물 {result["person_id"]}: '
+                      f'5장 저장 완료 ({result["paths"][0].parent})')
 
     def _expire_persons(self):
         removed_ids = self.state_manager.remove_disappeared_persons()
@@ -372,7 +378,7 @@ class VideoWorker(QThread):
         if self.tracker is not None:
             self.tracker.expire_persons(removed_ids)
         for person_id in removed_ids:
-            self.crop_collector.remove_person(person_id)
+            self.crop_worker.remove_person(person_id)
             if self.clip_manager is not None:
                 self.clip_manager.finish_person(person_id)
             self.event_ready.emit({"type": "disappear", "person_id": person_id,
@@ -382,6 +388,7 @@ class VideoWorker(QThread):
         # 이 메서드는 영상 작업 스레드에서 실행하므로 GUI를 기다리게 하지 않는다.
         # 각각의 정리는 독립적으로 시도하여 하나의 예외가 나머지 해제를 막지 않는다.
         actions = []
+        self.crop_worker.request_stop()
         if self.vlm_worker is not None:
             self.vlm_worker.request_stop()
         if self.recording_manager is not None:
@@ -405,8 +412,12 @@ class VideoWorker(QThread):
         for thread in self.recovery_threads:
             while thread.is_alive():
                 thread.join(timeout=0.2)
+        # VideoWorker 스레드에서 저장 중인 작업의 종료를 기다린다. GUI는 기다리지 않는다.
+        if self.crop_worker.ident is not None:
+            while self.crop_worker.is_alive():
+                self.crop_worker.join(timeout=0.1)
+        self._poll_crop_results()
         self.tracker = None
-        self.crop_collector.clear()
         self.state_manager.person_states.clear()
         self.cleanup_ok = not self.cleanup_errors
 
@@ -507,5 +518,6 @@ class VideoWorker(QThread):
 
     def request_stop(self):
         self.running = False
+        self.crop_worker.request_stop()
         if self.vlm_worker is not None:
             self.vlm_worker.request_stop()

@@ -50,6 +50,18 @@ class CropCollector:
         if x2 - x1 < self.min_width or y2 - y1 < self.min_height:
             return ()
         image = frame[y1:y2, x1:x2]
+        return self.collect_image(person_id, image, first_seen=state.first_seen)
+
+    def collect_image(self, person_id, image, first_seen=None):
+        """비동기 소비자용: 생산자가 이미 간격을 제한하고 복사한 crop을 평가한다."""
+        state = self.collections.get(person_id)
+        if state is None:
+            state = self.collections[person_id] = CropCollection(first_seen or datetime.now())
+        if state.saved_paths or state.failed:
+            return ()
+        height, width = image.shape[:2]
+        if width < self.min_width or height < self.min_height:
+            return ()
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         if cv2.Laplacian(gray, cv2.CV_64F).var() < self.min_sharpness:
             return ()

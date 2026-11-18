@@ -4,13 +4,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 import test_camera_runtime  # 기존 offscreen Qt 환경과 client_code import 경로 재사용
 from storage.crop_collector import CropCollector
-from workers.video_worker import VideoWorker
 
 
 class CropCollectorTests(unittest.TestCase):
@@ -101,60 +100,6 @@ class CropCollectorTests(unittest.TestCase):
         self.assertNotEqual(first[0].parent, second[0].parent)
         self.assertEqual(first[0].read_bytes(), before)
         self.assertEqual(len(list(self.collector.output_root.rglob('*.jpg'))), 10)
-
-    def test_worker_saves_with_vlm_off_before_any_annotations(self):
-        worker = VideoWorker(use_yolo=True, use_vlm=False)
-        worker.crop_collector = self.collector
-        worker.stream = MagicMock(is_rtsp=False)
-        worker.stream.pop_connection_events.return_value = []
-        worker.stream.release.return_value = True
-        worker.stream.open.return_value = True
-        persons = [{'person_id': 1, 'bbox': self.bbox, 'conf': .9},
-                   {'person_id': 2, 'bbox': (30, 30, 160, 200), 'conf': .9}]
-        step = 0
-
-        def read():
-            nonlocal step
-            self.clock = step * .5
-            step += 1
-            return (True, self.frame.copy()) if step <= 6 else (False, None)
-
-        worker.stream.read.side_effect = read
-        tracker = SimpleNamespace(tracking_generation=0, track=lambda frame: persons)
-        frames = []
-        worker.frame_ready.connect(frames.append)
-        with patch('workers.video_worker.PersonTracker', return_value=tracker):
-            worker.run()
-        self.assertTrue(worker.cleanup_ok)
-        self.assertIsNone(worker.vlm_worker)
-        self.assertIsNone(worker.recording_manager)
-        self.assertEqual(len(frames), 6)
-        files = list(self.collector.output_root.rglob('*.jpg'))
-        self.assertEqual(len(files), 10)
-        # 두 사람의 영역이 겹쳐도 다른 사람의 박스·글자가 crop에 들어가지 않는다.
-        for person in persons:
-            x1, y1, x2, y2 = person['bbox']
-            _, expected = cv2.imencode('.jpg', self.frame[y1:y2, x1:x2])
-            actual = next(p for p in files if p.parent.name.startswith(f'person_{person["person_id"]}_'))
-            self.assertEqual(actual.read_bytes(), expected.tobytes())
-        self.assertFalse(self.collector.collections)
-
-    def test_worker_crop_failure_reports_once_and_keeps_stream_running(self):
-        worker = VideoWorker(use_vlm=False)
-        worker.crop_collector = self.collector
-        worker.tracker = SimpleNamespace(tracking_generation=0)
-        errors = []
-        worker.event_ready.connect(errors.append)
-        person = {'person_id': 1, 'bbox': self.bbox}
-        with patch('storage.crop_collector.cv2.imencode', return_value=(False, None)):
-            for at in (0, .5, 1, 1.5, 2, 2.5):
-                self.clock = at
-                worker._collect_crops(self.frame, [person])
-        self.assertEqual(len(errors), 1)
-        self.assertEqual(errors[0]['type'], 'error')
-        self.assertTrue(worker.use_yolo)
-        self.assertTrue(worker.running)
-
 
 if __name__ == '__main__':
     unittest.main()
