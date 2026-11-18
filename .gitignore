@@ -11,3 +11,6 @@ __pycache__/
 
 # Backend runtime state (accounts, execution history and process lock)
 client_code/backend/data/
+
+# Camera crop MVP output (local runtime media)
+/output/

@@ -14,6 +14,7 @@ from detection.person_tracker import PersonTracker
 from recovery.network_recovery_manager import NetworkRecoveryManager
 from storage.clip_manager import ClipManager
 from storage.crop_manager import CropManager
+from storage.crop_collector import CropCollector
 from storage.recording_manager import RecordingManager
 from video.video_stream import VideoStream
 from workers.vlm_worker import VLMWorker
@@ -54,6 +55,8 @@ class VideoWorker(QThread):
         root = Path(ai_cctv_path).resolve() if ai_cctv_path else Path(__file__).resolve().parents[1] / 'outputs'
         self.run_directory = root / 'cameras' / f'camera_{camera_id}' / self.execution_id
         self.crop_manager = CropManager(save_dir=str(self.run_directory / 'crops'))
+        self.crop_collector = CropCollector(camera_id=camera_id)
+        self._crop_generation = 0
         self.state_manager = PersonStateManager(disappear_timeout=3.0)
         self.ai_cctv_path = str(self.run_directory) if ai_cctv_path else ''
         self.original_segment_seconds = original_segment_seconds
@@ -76,6 +79,7 @@ class VideoWorker(QThread):
         self.use_yolo = False
         self.use_vlm = False
         self.tracker = None
+        self.crop_collector.clear()
 
         if self.vlm_worker is not None:
             self.vlm_worker.request_stop()
@@ -222,6 +226,10 @@ class VideoWorker(QThread):
             },
             """
 
+            # 모든 crop을 박스·글자를 그리기 전에 추출한다. VLM과 독립적으로 실행한다.
+            if self.use_yolo and self.tracker is not None:
+                self._collect_crops(frame, persons)
+
             for person in persons: # 사람마다 처리.
                 person_id = person["person_id"]
                 bbox = person["bbox"]
@@ -343,6 +351,20 @@ class VideoWorker(QThread):
             # CCTVMainWindow.update_frame()에서 이 프레임 받아서 송출
             self.frame_ready.emit(frame)
 
+    def _collect_crops(self, frame, persons):
+        generation = self.tracker.tracking_generation
+        if generation != self._crop_generation:
+            self.crop_collector.clear()
+            self._crop_generation = generation
+        for person in persons:
+            try:
+                paths = self.crop_collector.collect(person['person_id'], frame, person['bbox'])
+            except (OSError, cv2.error):
+                self._report_storage_error('인물 crop 저장 실패. output 폴더 권한·디스크 공간을 확인하세요.')
+                continue
+            if paths:
+                print(f'[Crop] 카메라 {self.camera_id}, 인물 {person["person_id"]}: 5장 저장 완료 ({paths[0].parent})')
+
     def _expire_persons(self):
         removed_ids = self.state_manager.remove_disappeared_persons()
         if not removed_ids:
@@ -350,6 +372,7 @@ class VideoWorker(QThread):
         if self.tracker is not None:
             self.tracker.expire_persons(removed_ids)
         for person_id in removed_ids:
+            self.crop_collector.remove_person(person_id)
             if self.clip_manager is not None:
                 self.clip_manager.finish_person(person_id)
             self.event_ready.emit({"type": "disappear", "person_id": person_id,
@@ -383,6 +406,7 @@ class VideoWorker(QThread):
             while thread.is_alive():
                 thread.join(timeout=0.2)
         self.tracker = None
+        self.crop_collector.clear()
         self.state_manager.person_states.clear()
         self.cleanup_ok = not self.cleanup_errors
 
