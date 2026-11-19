@@ -1,6 +1,6 @@
-# OSNet 특징 추출·공용 매칭 — 2~3단계
+# OSNet 특징 추출·공용 매칭·카메라 연결 — 2~4단계
 
-저장된 crop 5장→512차원 대표 벡터 추출과 독립 공용 GlobalPersonManager의 후보 복원·매칭·API 저장을 구현했다. 카메라별 OSNetWorker·카메라 큐·화면 연결은 아직 구현하지 않았다. 단계별 작업과 인계는 [개발 계획](../docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md)을 읽는다.
+저장된 crop 5장→대표 벡터→공용 Manager/API 저장과 카메라별 OSNetWorker·큐·관측/로그인 수명 연결을 구현했다. 글로벌 ID 화면 표시·실제 카메라 정확도/성능 검증은 5단계다. 단계별 작업과 인계는 [개발 계획](../docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md)을 읽는다.
 
 ## 실행 환경과 가중치 준비
 
@@ -89,3 +89,25 @@ manager.start()                                    # 시작 조회·HTTP는 작�
 ```
 
 3단계 19개 통과. 테스트 벡터의 매칭 정책·큐·수명·재시도와 실제 임시 DB/HTTP의 신규·기존·후보 복원·커밋 후 응답 유실 재전송을 확인했다. 이 결과는 실제 카메라 재식별 정확도나 로그인 UI 연계 검증이 아니다.
+
+## 카메라·로그인 연결 — 4단계
+
+- 실제 앱에서는 CameraRuntimeManager가 로그인된 SessionManager의 주소/Access 토큰 사본으로 ReIDPipeline을 준비한다. 첫 AI 카메라 시작에서 백그라운드로 모델·후보를 복원한다. 영상 수신을 모델 준비나 HTTP 응답 때문에 대기시키지 않는다.
+- VideoWorker별 CropWorker의 완료 결과를 OSNetWorker의 입력 큐(16개)에 전달한다. 큐가 차면 영상 쪽 보류를 16개까지만 유지하고 초과 관측은 안내 후 제외한다. OSNetWorker는 공유 extractor 하나를 사용하고 공용 Manager로 대표 벡터를 한 번 제출한다.
+- 관측별 UUID, 카메라 실행 UUID, 추적 세대, 로컬 ID와 첫 품질 통과 crop의 실제 UTC 촬영 시각을 전달한다. 폴더명 기준 first_seen은 이전과 같은 로컬 시각이며 촬영 시각을 대신하지 않는다.
+- 추적 종료/초기화·카메라 STOP은 해당 관측과 작업만 해제한다. 한 카메라가 종료 대기 중이어도 다른 카메라는 수신한다. 이미 진행 중인 파일 저장·모델 추론은 안전하게 마무리하되 종료 관측에 결과를 재연결하지 않는다. 새로운 실행은 이전 worker 정리 전 같은 슬롯을 재사용하지 않는다.
+- 사전 토큰 갱신은 GUI에서 pipeline.set_access_token으로 전달한다. 401·세션 만료·로그아웃은 기존 앱 종료 흐름에 연결하여 카메라/OSNet/공용 Manager의 정리를 확인한 뒤 토큰 폐기를 진행한다. 작업 스레드가 Qt SessionManager를 직접 호출하지 않는다.
+- 모델/입력/저장 오류는 영상 수신을 유지하며 안내한다. 저장 오류의 같은 실행 재확인은 runtime.retry_reid() 메서드로 가능하지만 전용 재시도 UI 버튼은 아직 없다. 일반 사용자에게는 로그아웃 후 재로그인으로 새 pipeline을 만드는 경로를 안내한다.
+- 결과는 VideoWorker.global_person_ids, reid_ready 및 CameraRuntimeManager.global_person_ready로 전달한다. 이 단계에서는 화면/바운딩박스 글로벌 ID 표시를 추가하지 않았다.
+
+가중치를 준비한 뒤 일반 앱 실행(기본 DB/실행 기록이 생성되며 계정이 없으면 최초 회원가입 필요):
+
+실행 디렉터리: `C:\GitHub_Clone\AI_CCTV`.
+
+```powershell
+.\venv311\Scripts\python.exe client_code/main.py
+```
+
+4단계의 이번 검증은 기본 앱/운영 DB를 실행하지 않고 임시·합성 환경에서 수행했다. 신규 14개·crop 19개·인증 전환 25개가 통과했다. 추가 카메라 실행/멀티카메라 회귀는 25개 중 22개 통과이며 기존 CAP_DSHOW 영상 파일 입력 3개가 실패했다. 소유 입력 코드는 수정하지 않았다. 자세한 실패 이름은 개발 계획과 기존 클라이언트 README 기록을 따른다.
+
+기존 crop 두 묶음으로 실제 CUDA 모델·OSNetWorker 두 개·공용 Manager·임시 HTTP/DB 전체 연결도 확인했다(output/reid_stage4/report.json). 원본 사진은 보존했다. 실제 두 장치 영상·YOLO 동시 실행·동일인 정답 정확도와 임계값 튜닝은 5단계에서 확인한다.

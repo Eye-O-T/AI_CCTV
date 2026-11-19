@@ -36,8 +36,9 @@ class CameraRuntimeManager(QObject):
     stop_requested = pyqtSignal(int)
     stopped = pyqtSignal(int)
     shutdown_complete = pyqtSignal()
+    global_person_ready = pyqtSignal(int, object)
 
-    def __init__(self, parent=None, api_factory=CameraApiClient):
+    def __init__(self, parent=None, api_factory=CameraApiClient, reid_factory=None):
         super().__init__(parent)
         self.session = None
         self.api_factory = api_factory
@@ -49,13 +50,19 @@ class CameraRuntimeManager(QObject):
         self._generation = 0
         self._shutdown_emitted = False
         self._shutdown_started = False
+        self.reid_pipeline = None
+        self.reid_factory = reid_factory
+        self._reid_timer = QTimer(self)
+        self._reid_timer.setInterval(100)
+        self._reid_timer.timeout.connect(self._poll_reid)
         self._stop_timer = QTimer(self)
         self._stop_timer.setInterval(100)
         self._stop_timer.timeout.connect(self._poll_stop)
 
     @property
     def busy(self):
-        return bool(self.runs) or self.monitor_camera_id is not None
+        return (bool(self.runs) or self.monitor_camera_id is not None
+                or bool(self._shutdown_started and self.reid_pipeline is not None and self.reid_pipeline.is_alive()))
 
     @property
     def occupied_slots(self):
@@ -63,6 +70,61 @@ class CameraRuntimeManager(QObject):
 
     def bind_session(self, session):
         self.session = session
+        if hasattr(session, 'refresh_completed'):
+            session.refresh_completed.connect(self._refresh_reid_token)
+        if hasattr(session, 'expired'):
+            session.expired.connect(self._stop_reid)
+        if hasattr(session, 'signed_out'):
+            session.signed_out.connect(self._stop_reid)
+
+    def _ensure_reid(self):
+        if self.reid_pipeline is not None:
+            return self.reid_pipeline
+        token = getattr(self.session, 'access_token', None)
+        base_url = getattr(getattr(self.session, 'api', None), 'base_url', None)
+        if not isinstance(token, str) or not token or not isinstance(base_url, str):
+            return None
+        factory = self.reid_factory
+        if factory is None:
+            from reid.pipeline import ReIDPipeline
+            factory = ReIDPipeline
+        self.reid_pipeline = factory(base_url, token)
+        self._reid_timer.start()
+        return self.reid_pipeline
+
+    def _refresh_reid_token(self, error):
+        if not error and self.reid_pipeline is not None and not self.shutting_down:
+            self.reid_pipeline.set_access_token(self.session.access_token)
+
+    def _stop_reid(self, *args):
+        if self.reid_pipeline is not None:
+            self.reid_pipeline.request_stop()
+
+    def retry_reid(self):
+        return self.reid_pipeline is not None and self.reid_pipeline.retry_pending()
+
+    def _poll_reid(self):
+        if self.reid_pipeline is None:
+            return
+        for camera_id, code in self.reid_pipeline.take_notices():
+            if code == 'INVALID_ACCESS_TOKEN' and not self.shutting_down:
+                self.session.expire_access()
+                continue
+            if code.startswith('WEIGHTS_') or code in ('MODEL_LOAD_FAILED', 'REID_INITIALIZATION_FAILED'):
+                message = '글로벌 인물 모델을 준비하지 못했습니다. 모델 파일을 확인하세요. 영상은 유지합니다.'
+            elif code in ('IMAGE_READ_FAILED', 'INFERENCE_FAILED', 'INVALID_FEATURES'):
+                message = '인물 특징 추출에 실패한 관측이 있습니다. 영상은 유지합니다.'
+            elif code == 'RESULT_QUEUE_FULL':
+                message = '글로벌 ID 결과 수신이 지연되어 일부 관측을 제외했습니다.'
+            else:
+                message = '글로벌 ID 처리를 확인하지 못했습니다. 영상은 유지하며 로그아웃 후 다시 로그인하면 작업을 다시 시작합니다.'
+            targets = [camera_id] if camera_id is not None else list(self.runs)
+            for target in targets:
+                if target in self.runs:
+                    self.notice.emit(target, message)
+        if self.shutting_down and not self.reid_pipeline.is_alive():
+            self._reid_timer.stop()
+            self._check_shutdown()
 
     def can_start(self, camera):
         return bool(self.session is not None and not self.shutting_down and camera
@@ -161,7 +223,8 @@ class CameraRuntimeManager(QObject):
                 use_yolo=run.options.get('use_yolo', True), use_vlm=False,
                 ai_cctv_path=run.options.get('ai_cctv_path', ''),
                 original_segment_seconds=run.options.get('original_segment_seconds', 10),
-                clip_max_seconds=run.options.get('clip_max_seconds', 10))
+                clip_max_seconds=run.options.get('clip_max_seconds', 10),
+                reid_pipeline=self._ensure_reid() if run.options.get('use_yolo', True) else None)
         except Exception:
             self._status(run, '오류')
             self.notice.emit(camera_id, '영상 작업을 준비하지 못했습니다. 입력과 저장 경로를 확인하세요.')
@@ -171,6 +234,8 @@ class CameraRuntimeManager(QObject):
             getattr(run.worker, name + '_ready').connect(
                 lambda value, r=run, kind=name: self._dispatch(r, kind, value))
         run.worker.finished.connect(lambda r=run: self._dispatch(r, 'finished', None))
+        if hasattr(run.worker, 'reid_ready'):
+            run.worker.reid_ready.connect(lambda result, r=run: self._dispatch(r, 'reid', result))
         self.started.emit(dict(camera))
         self._status(run, '로딩 중')
         self.loading_ready.emit(camera_id, '시스템 시작 중…')
@@ -198,6 +263,9 @@ class CameraRuntimeManager(QObject):
             if value.get('type') == 'network_failure':
                 self._status(run, '연결 장애 / 재연결 중')
             self.event_ready.emit(camera_id, value)
+        elif kind == 'reid':
+            if run.worker.is_reid_result_current(value):
+                self.global_person_ready.emit(camera_id, value)
         else:
             getattr(self, kind + '_ready').emit(camera_id, value)
 
@@ -241,6 +309,7 @@ class CameraRuntimeManager(QObject):
         self._shutdown_started = True
         for camera_id in list(self.runs):
             self.stop(camera_id)
+        self._stop_reid()
         if self.monitor_camera_id is not None:
             self.stop_requested.emit(self.monitor_camera_id)
         self.changed.emit()
@@ -270,7 +339,8 @@ class CameraRuntimeManager(QObject):
                 self.notice.emit(camera_id, storage_errors[-1])
             self._release(run)
             self.stopped.emit(camera_id)
-        if not any(r.stopping and not r.cleanup_failed for r in self.runs.values()):
+        if (not any(r.stopping and not r.cleanup_failed for r in self.runs.values())
+                and not (self._shutdown_started and self.reid_pipeline is not None and self.reid_pipeline.is_alive())):
             self._stop_timer.stop()
         self._check_shutdown()
 
@@ -286,6 +356,7 @@ class CameraRuntimeManager(QObject):
         self.changed.emit()
 
     def _check_shutdown(self):
-        if self._shutdown_started and not self.busy and not self._shutdown_emitted:
+        if (self._shutdown_started and not self.busy and not self._shutdown_emitted
+                and not (self.reid_pipeline is not None and self.reid_pipeline.is_alive())):
             self._shutdown_emitted = True
             self.shutdown_complete.emit()

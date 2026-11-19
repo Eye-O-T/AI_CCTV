@@ -1,6 +1,7 @@
 """카메라 한 대의 전신 crop 후보를 제한 큐로 받아 평가·저장하는 스레드."""
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from uuid import uuid4
 from queue import Empty, Full, Queue, SimpleQueue
 from threading import Event, Lock, Thread
 import time
@@ -16,6 +17,8 @@ class SubmissionState:
     first_seen: datetime
     last_sample_at: float
     finished: bool = False
+    task_id: object = field(default_factory=uuid4)
+    first_crop_at: datetime | None = None
 
 
 @dataclass
@@ -46,7 +49,7 @@ class CropWorker(Thread):
     def submit(self, person_id, frame, bbox):
         """생산자에서 호출한다. 품질 검사·파일 저장·큐 공간 대기는 하지 않는다."""
         now = time.monotonic()
-        captured_at = datetime.now()
+        captured_at = datetime.now(timezone.utc)
         with self._lock:
             if self._stopping.is_set():
                 return False
@@ -56,7 +59,7 @@ class CropWorker(Thread):
                     return False
                 state.last_sample_at = now
             else:
-                state = self._observations[person_id] = SubmissionState(captured_at, now)
+                state = self._observations[person_id] = SubmissionState(captured_at.astimezone().replace(tzinfo=None), now)
             # 큐가 찼을 때에는 큰 이미지 복사도 생략한다. put_nowait도 Full을 처리한다.
             if self.tasks.full():
                 return False
@@ -119,6 +122,12 @@ class CropWorker(Thread):
             except Empty:
                 return results
 
+    def is_result_current(self, result):
+        with self._lock:
+            state = self._observations.get(result.get('person_id'))
+            return bool(not self._stopping.is_set() and result.get('generation') == self._generation
+                        and state is not None and result.get('task_id') == state.task_id)
+
     def run(self):
         generation = self._generation
         collecting = {}
@@ -158,9 +167,15 @@ class CropWorker(Thread):
                     collecting[task.person_id] = state
                 error = None
                 try:
+                    previous = self.collector.collections.get(task.person_id)
+                    count_before = len(previous.images) if previous is not None else 0
                     paths = self.collector.collect_image(
                         task.person_id, task.image, task.first_seen,
                         lambda: self._current_observation(task) is not None)
+                    collected = self.collector.collections.get(task.person_id)
+                    if (state.first_crop_at is None and collected is not None
+                            and (paths or len(collected.images) > count_before)):
+                        state.first_crop_at = task.captured_at
                 except (OSError, cv2.error):
                     paths = ()
                     error = '인물 crop 저장·품질 처리 실패. output 폴더 권한·디스크 공간을 확인하세요.'
@@ -170,6 +185,7 @@ class CropWorker(Thread):
                                 and self._observations.get(task.person_id) is state):
                             state.finished = True
                     self.results.put(dict(generation=task.generation, person_id=task.person_id,
+                                          task_id=state.task_id, observed_at=state.first_crop_at,
                                           paths=paths, error=error))
         except Exception:
             self.results.put(dict(error='CropWorker 처리 오류로 crop 수집을 중단했습니다.', paths=()))

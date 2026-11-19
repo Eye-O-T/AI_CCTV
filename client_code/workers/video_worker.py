@@ -1,6 +1,7 @@
 import threading
 import time
 import traceback
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -26,6 +27,7 @@ class VideoWorker(QThread):
     metrics_ready = pyqtSignal(dict) # 현재 객체 수, 추적 중인 사람 수 보내기
     event_ready = pyqtSignal(dict) # 오류, 사라짐, VLM 큐 등록 같은 이벤트 보내기
     loading_ready = pyqtSignal(str) # START 이후 첫 화면이 뜨기 전 로딩 상태 보내기
+    reid_ready = pyqtSignal(object)
 
     def __init__( # start누르면 실행
         self,
@@ -36,7 +38,8 @@ class VideoWorker(QThread):
         original_segment_seconds=10, # 녹화 간격
         clip_max_seconds=10, # 클립 최대 길이
         camera_id=1,
-        edge_api_base_url=None
+        edge_api_base_url=None,
+        reid_pipeline=None
     ):
         super().__init__()
         self.camera_id = camera_id
@@ -57,6 +60,11 @@ class VideoWorker(QThread):
         self.crop_manager = CropManager(save_dir=str(self.run_directory / 'crops'))
         self.crop_worker = CropWorker(camera_id=camera_id)
         self._crop_generation = 0
+        self.reid_pipeline = reid_pipeline
+        self.osnet_worker = None
+        self._reid_pending = deque()
+        self._reid_overflow_reported = False
+        self.global_person_ids = {}
         self.state_manager = PersonStateManager(disappear_timeout=3.0)
         self.ai_cctv_path = str(self.run_directory) if ai_cctv_path else ''
         self.original_segment_seconds = original_segment_seconds
@@ -80,6 +88,9 @@ class VideoWorker(QThread):
         self.use_vlm = False
         self.tracker = None
         self.crop_worker.request_stop()
+        if self.osnet_worker is not None:
+            self.osnet_worker.request_stop()
+        self.global_person_ids.clear()
 
         if self.vlm_worker is not None:
             self.vlm_worker.request_stop()
@@ -175,11 +186,17 @@ class VideoWorker(QThread):
             self.loading_ready.emit("실시간 화면 준비 중...")
 
         if self.running and self.use_yolo:
+            if self.reid_pipeline is not None:
+                try:
+                    self.osnet_worker = self.reid_pipeline.attach(self.camera_id, self.execution_id)
+                except Exception:
+                    self.event_ready.emit({'type': 'error', 'message': '글로벌 ID 작업을 준비하지 못했습니다. 영상 수신은 유지합니다.'})
             self.crop_worker.start()
 
         last_frame_at = time.monotonic()
         while self.running:
             self._poll_crop_results()
+            self._poll_reid_results()
             ret, frame = self.stream.read()
             self.handle_rtsp_connection_events()
             self._expire_persons()
@@ -359,6 +376,10 @@ class VideoWorker(QThread):
         generation = self.tracker.tracking_generation
         if generation != self._crop_generation:
             self.crop_worker.reset(generation)
+            if self.osnet_worker is not None:
+                self.osnet_worker.reset()
+            self._reid_pending.clear()
+            self.global_person_ids.clear()
             self._crop_generation = generation
         for person in persons:
             self.crop_worker.submit(person['person_id'], frame, person['bbox'])
@@ -367,11 +388,50 @@ class VideoWorker(QThread):
         for result in self.crop_worker.take_results():
             if result.get('generation', self._crop_generation) != self._crop_generation:
                 continue
+            if 'task_id' in result and not self.crop_worker.is_result_current(result):
+                continue
             if result['error']:
                 self._report_storage_error(result['error'])
             else:
                 print(f'[Crop] 카메라 {self.camera_id}, 인물 {result["person_id"]}: '
                       f'5장 저장 완료 ({result["paths"][0].parent})')
+                if self.osnet_worker is not None and self.running and result.get('observed_at') is not None:
+                    if len(self._reid_pending) < 16:
+                        self._reid_pending.append(result)
+                    elif not self._reid_overflow_reported:
+                        self._reid_overflow_reported = True
+                        self.event_ready.emit({'type': 'error', 'message': '글로벌 ID 대기 작업이 가득 차 일부 관측을 제외합니다.'})
+
+    def is_reid_result_current(self, result):
+        observation = result.observation
+        return bool(self.running and observation.camera_id == self.camera_id and observation.execution_id == self.execution_id
+                    and self.crop_worker.is_result_current(dict(generation=observation.tracking_generation,
+                        person_id=observation.local_person_id, task_id=observation.task_id)))
+
+    def _poll_reid_results(self):
+        if self.osnet_worker is None:
+            return
+        if not self.running or not self.osnet_worker.accepting:
+            self._reid_pending.clear()
+            return
+        from reid.tasks import Observation
+        while self._reid_pending:
+            result = self._reid_pending[0]
+            if not self.crop_worker.is_result_current(result):
+                self._reid_pending.popleft()
+                continue
+            observation = Observation(result['task_id'], self.camera_id, self.execution_id,
+                                      result['generation'], result['person_id'], result['observed_at'])
+            if (not self.osnet_worker.has_observation(observation.task_id)
+                    and not self.osnet_worker.submit(observation, result['paths'])):
+                break
+            self._reid_pending.popleft()
+        if not self._reid_pending:
+            self._reid_overflow_reported = False
+        for result in self.osnet_worker.take_results():
+            if self.is_reid_result_current(result):
+                self.global_person_ids[result.observation.local_person_id] = result.global_person_id
+                self.reid_ready.emit(result)
 
     def _expire_persons(self):
         removed_ids = self.state_manager.remove_disappeared_persons()
@@ -381,6 +441,9 @@ class VideoWorker(QThread):
             self.tracker.expire_persons(removed_ids)
         for person_id in removed_ids:
             self.crop_worker.remove_person(person_id)
+            if self.osnet_worker is not None:
+                self.osnet_worker.end_person(person_id)
+            self.global_person_ids.pop(person_id, None)
             if self.clip_manager is not None:
                 self.clip_manager.finish_person(person_id)
             self.event_ready.emit({"type": "disappear", "person_id": person_id,
@@ -391,6 +454,12 @@ class VideoWorker(QThread):
         # 각각의 정리는 독립적으로 시도하여 하나의 예외가 나머지 해제를 막지 않는다.
         actions = []
         self.crop_worker.request_stop()
+        if self.osnet_worker is not None:
+            try:
+                self.reid_pipeline.detach(self.osnet_worker)
+            except Exception:
+                self.cleanup_errors.append('글로벌 ID 작업 정리 실패')
+                self.event_ready.emit({'type': 'error', 'message': '글로벌 ID 작업 정리에 실패했습니다.'})
         if self.vlm_worker is not None:
             self.vlm_worker.request_stop()
         if self.recording_manager is not None:
@@ -419,6 +488,11 @@ class VideoWorker(QThread):
             while self.crop_worker.is_alive():
                 self.crop_worker.join(timeout=0.1)
         self._poll_crop_results()
+        if self.osnet_worker is not None:
+            while self.osnet_worker.is_alive():
+                self.osnet_worker.join(timeout=.1)
+        self._reid_pending.clear()
+        self.global_person_ids.clear()
         self.tracker = None
         self.state_manager.person_states.clear()
         self.cleanup_ok = not self.cleanup_errors
@@ -521,5 +595,7 @@ class VideoWorker(QThread):
     def request_stop(self):
         self.running = False
         self.crop_worker.request_stop()
+        if self.osnet_worker is not None:
+            self.osnet_worker.request_stop()
         if self.vlm_worker is not None:
             self.vlm_worker.request_stop()
