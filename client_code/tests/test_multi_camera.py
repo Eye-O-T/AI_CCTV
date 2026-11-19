@@ -196,6 +196,7 @@ class SyntheticMultiCameraTests(unittest.TestCase):
         # 합성 AVI는 장치 전용 DSHOW 대신 파일 백엔드로 연다. 제품 장치 연결은 변경하지 않는다.
         with TemporaryDirectory() as temp, \
                 patch('storage.recording_manager.DEFAULT_TEMP_ROOT', Path(temp) / 'recording-temp'), \
+                patch('workers.video_worker.DEFAULT_MEDIA_TEMP_ROOT', Path(temp) / 'media-temp'), \
                 patch('video.video_stream.cv2.VideoCapture', side_effect=lambda source, *args: open_capture(source, cv2.CAP_ANY)):
             paths = {}
             for camera_id, color in ((7, 60), (8, 180)):
@@ -260,14 +261,14 @@ class SyntheticMultiCameraTests(unittest.TestCase):
                 self.assertTrue(all(w.cleanup_ok and w.use_yolo == use_yolo and w.vlm_worker is None for w in workers))
                 for worker in workers:
                     if use_yolo:
-                        self.assertEqual(len(list(worker.run_directory.rglob('preview.mp4'))), 2)
-                        self.assertEqual(len(list(worker.run_directory.rglob('trajectory.jpg'))), 2)
-                        self.assertFalse(list(worker.run_directory.rglob('full_crop.jpg')))
+                        self.assertEqual(len(list(Path(worker.clip_manager.clip_root_dir).rglob('clip.mp4'))), 2)
+                        self.assertEqual(len(list(Path(worker.clip_manager.clip_root_dir).rglob('trajectory.jpg'))), 2)
+                        self.assertFalse(list(Path(worker.clip_manager.clip_root_dir).rglob('crop.jpg')))
                         self.assertIsNone(worker.tracker)
                     recordings = list((Path(temp) / '원본 녹화본').glob(f'*/camera_{worker.camera_id}/*.mp4'))
                     self.assertTrue(recordings)
                     self.assertFalse(list(worker.run_directory.rglob('recording_*.mp4')))
-                    videos = list(worker.run_directory.rglob('*.mp4')) + recordings
+                    videos = (list(Path(worker.clip_manager.clip_root_dir).rglob('clip.mp4')) if use_yolo else []) + recordings
                     self.assertTrue(videos)
                     for video in videos:
                         capture = cv2.VideoCapture(str(video))
@@ -277,7 +278,8 @@ class SyntheticMultiCameraTests(unittest.TestCase):
                             self.assertAlmostEqual(float(saved.mean()), 60 if worker.camera_id == 7 else 180, delta=8)
                         finally:
                             capture.release()
-                    for trajectory in worker.run_directory.rglob('trajectory.jpg'):
+                    trajectories = Path(worker.clip_manager.clip_root_dir).rglob('trajectory.jpg') if use_yolo else []
+                    for trajectory in trajectories:
                         saved = cv2.imdecode(np.fromfile(trajectory, dtype=np.uint8), cv2.IMREAD_COLOR)
                         self.assertEqual(saved.shape, (48, 64, 3))
             finally:

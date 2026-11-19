@@ -41,9 +41,12 @@ class TrackingStorageTests(unittest.TestCase):
     def setUp(self):
         temporary = TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        override = patch('storage.recording_manager.DEFAULT_TEMP_ROOT', Path(temporary.name))
+        override = patch('storage.recording_manager.DEFAULT_TEMP_ROOT', Path(temporary.name) / 'recording')
         override.start()
         self.addCleanup(override.stop)
+        media = patch('workers.video_worker.DEFAULT_MEDIA_TEMP_ROOT', Path(temporary.name) / 'media')
+        media.start()
+        self.addCleanup(media.stop)
 
     def test_real_bytetrack_ids_survive_other_camera_creation_and_reset(self):
         from detection.isolated_byte_tracker import IsolatedBYTETracker
@@ -125,7 +128,7 @@ class TrackingStorageTests(unittest.TestCase):
                 if step == 3:
                     self.assertFalse(worker.state_manager.person_states)
                     self.assertFalse(worker.clip_manager.person_clips)
-                    self.assertEqual(len(list(worker.run_directory.rglob('trajectory.jpg'))), 2)
+                    self.assertEqual(len(list(Path(worker.clip_manager.clip_root_dir).rglob('trajectory.jpg'))), 2)
                     return True, np.zeros((48, 64, 3), np.uint8)
                 worker.request_stop()
                 return False, None
@@ -135,7 +138,7 @@ class TrackingStorageTests(unittest.TestCase):
             self.assertTrue(worker.cleanup_ok)
             self.assertEqual(len(frames), 2)
             self.assertEqual(len([e for e in events if e['type'] == 'disappear']), 2)
-            self.assertEqual(len(list(worker.run_directory.rglob('preview.mp4'))), 4)
+            self.assertEqual(len(list(Path(worker.clip_manager.clip_root_dir).rglob('clip.mp4'))), 4)
             self.assertIsNone(worker.tracker)
 
     def test_clip_deadline_keeps_collecting_trajectory_and_unannotated_full_frame(self):
@@ -157,8 +160,8 @@ class TrackingStorageTests(unittest.TestCase):
             folder = Path(state['folder_path'])
             manager.finish_all()
             self.assertTrue((folder / 'trajectory.jpg').is_file())
-            self.assertFalse((folder / 'full_crop.jpg').exists())
-            capture = cv2.VideoCapture(str(folder / 'preview.mp4'))
+            self.assertFalse((folder / 'crop.jpg').exists())
+            capture = cv2.VideoCapture(str(folder / 'clip.mp4'))
             try:
                 ok, saved = capture.read()
                 self.assertTrue(ok)

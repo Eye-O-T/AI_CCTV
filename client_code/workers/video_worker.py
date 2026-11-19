@@ -21,6 +21,9 @@ from workers.vlm_worker import VLMWorker
 from workers.crop_worker import CropWorker
 
 
+DEFAULT_MEDIA_TEMP_ROOT = Path(__file__).resolve().parents[2] / 'temp'
+
+
 class VideoWorker(QThread):
     status_ready = pyqtSignal(str)
     frame_ready = pyqtSignal(object) # 분석이 끝난 프레임을 GUI 화면에 보내기
@@ -28,6 +31,7 @@ class VideoWorker(QThread):
     event_ready = pyqtSignal(dict) # 오류, 사라짐, VLM 큐 등록 같은 이벤트 보내기
     loading_ready = pyqtSignal(str) # START 이후 첫 화면이 뜨기 전 로딩 상태 보내기
     reid_ready = pyqtSignal(object)
+    media_ready = pyqtSignal(object)  # 완료된 파일만 알린다. 최종 저장 위치로 이동은 3단계다.
 
     def __init__( # start누르면 실행
         self,
@@ -57,7 +61,8 @@ class VideoWorker(QThread):
         # 사용자 미디어는 이동하지 않는다. 새 실행의 저장물만 분리한다.
         root = Path(ai_cctv_path).resolve() if ai_cctv_path else Path(__file__).resolve().parents[1] / 'outputs'
         self.run_directory = root / 'cameras' / f'camera_{camera_id}' / self.execution_id
-        self.crop_manager = CropManager(save_dir=str(self.run_directory / 'crops'))
+        # 비활성 VLM 때문에 사용자 저장소에 빈 UUID 폴더를 만들지 않는다.
+        self.crop_manager = CropManager(save_dir=str(self.run_directory / 'crops')) if self.use_vlm else None
         self.crop_worker = CropWorker(camera_id=camera_id)
         self._crop_generation = 0
         self.reid_pipeline = reid_pipeline
@@ -147,10 +152,13 @@ class VideoWorker(QThread):
             )
             if self.use_yolo:
                 self.clip_manager = ClipManager(
-                    base_dir=self.ai_cctv_path,
+                    base_dir=DEFAULT_MEDIA_TEMP_ROOT,
                     fps=fps,
                     max_clip_seconds=self.clip_max_seconds,
-                    disappear_timeout=3.0
+                    disappear_timeout=3.0,
+                    camera_id=self.camera_id,
+                    execution_id=self.execution_id,
+                    on_update=self.media_ready.emit,
                 )
 
         if getattr(self.stream, "is_rtsp", False) and self.ai_cctv_path and self.edge_api_base_url:
@@ -308,7 +316,7 @@ class VideoWorker(QThread):
                         person_id=person_id,
                         frame=clip_frame,
                         bbox=bbox,
-                        crop_path=crop_path
+                        generation=self._crop_generation,
                     )
 
                 # 화면에 전신여부 체크용
@@ -373,6 +381,8 @@ class VideoWorker(QThread):
     def _collect_crops(self, frame, persons):
         generation = self.tracker.tracking_generation
         if generation != self._crop_generation:
+            if self.clip_manager is not None:
+                self.clip_manager.finish_all()
             self.crop_worker.reset(generation)
             if self.osnet_worker is not None:
                 self.osnet_worker.reset()
@@ -394,6 +404,12 @@ class VideoWorker(QThread):
             else:
                 print(f'[Crop] 카메라 {self.camera_id}, 인물 {result["person_id"]}: '
                       f'5장 저장 완료 ({result["paths"][0].parent})')
+                if self.clip_manager is not None and len(result['paths']) == 5 and 'task_id' in result:
+                    try:
+                        self.clip_manager.save_representative_crop(
+                            result['person_id'], result['paths'][0], result['generation'], result['task_id'])
+                    except (OSError, cv2.error):
+                        self._report_storage_error('대표 crop 임시 저장 실패. temp 폴더 권한·디스크 공간을 확인하세요.')
                 if self.osnet_worker is not None and self.running and result.get('observed_at') is not None:
                     if len(self._reid_pending) < 16:
                         self._reid_started[result['task_id']] = (result['person_id'], time.monotonic())
