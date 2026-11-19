@@ -26,6 +26,8 @@ class PersonMediaUpdate:
     crop_path: Path | None
     trajectory_path: Path | None
     crop_task_id: object = None
+    global_person_id: int | None = None
+    move_failed: bool = False
 
 
 class ClipManager:
@@ -43,11 +45,16 @@ class ClipManager:
         camera_id=1,
         execution_id=None,
         on_update=None,
+        destination_root=None,
+        on_error=None,
     ):
         self.base_dir = base_dir
         self.camera_id = camera_id
         self.execution_id = execution_id or uuid4().hex
         self.on_update = on_update
+        self.destination_root = Path(destination_root).resolve() if destination_root else None
+        self.on_error = on_error
+        self.storage_failed = False
         self.fps = fps if fps and fps > 0 else 30
         self.frame_interval = timedelta(seconds=1.0 / self.fps)
         self.max_clip_seconds = max_clip_seconds
@@ -119,10 +126,16 @@ class ClipManager:
                 errors.append(error)
         if errors:
             raise OSError("인물 클립 또는 궤적 마무리 실패") from errors[0]
+        if self.destination_root is not None:
+            try:
+                Path(self.clip_root_dir).rmdir()
+            except OSError:
+                pass  # 미확정/실패 자료 및 다른 작업은 보존한다.
 
     def _create_person_state(self, person_id, frame, generation):
         now = datetime.now()
         folder_name = now.strftime('인물_%H시%M분%S초_%f') + f'_local_{person_id}'
+        Path(self.clip_root_dir).mkdir(parents=True, exist_ok=True)
         folder_path = str(self._make_directory(Path(self.clip_root_dir), folder_name))
 
         return {
@@ -148,6 +161,13 @@ class ClipManager:
             "crop_task_id": None,
             "trajectory_path": None,
             "finished_at": None,
+            "global_person_id": None,
+            "destination_directory": None,
+            "moved_files": {},
+            "failed_moves": set(),
+            "directory_failed": False,
+            "directory_finalized": False,
+            "move_failed": False,
         }
 
     def _start_new_clip(self, state, frame_size):
@@ -356,25 +376,119 @@ class ClipManager:
         if state is None or state['generation'] != generation or state['crop_saved']:
             return False
         folder = Path(state['folder_path'])
+        # 대표 이미지 복제가 실패해도 같은 관측의 유효한 글로벌 매칭은 연결할 수 있다.
+        state['crop_task_id'] = task_id
         pending = folder / 'crop.pending'
         # OSNet 원본 5장은 output에 보존한다. 복제 완료 전에는 ready 경로를 알리지 않는다.
         shutil.copyfile(crop_path, pending)
         destination = folder / 'crop.jpg'
         os.rename(pending, destination)
         state['crop_saved'] = True
-        state['crop_task_id'] = task_id
         self._notify(state)
         return True
 
+    def assign_global_person(self, observation, global_person_id):
+        """현재 Worker가 검증한 매칭 결과를 원래 관측에 한 번 연결한다."""
+        state = self.person_clips.get(observation.local_person_id)
+        if (state is None or observation.camera_id != self.camera_id
+                or observation.execution_id != self.execution_id
+                or observation.tracking_generation != state['generation']
+                or observation.task_id != state['crop_task_id']
+                or type(global_person_id) is not int or global_person_id < 1):
+            return False
+        if state['global_person_id'] not in (None, global_person_id):
+            return False
+        state['global_person_id'] = global_person_id
+        self._notify(state)
+        return True
+
+    def _move_error(self, state):
+        self.storage_failed = True
+        if not state['move_failed']:
+            state['move_failed'] = True
+            if self.on_error is not None:
+                self.on_error('인물 자료 이동·폴더명 확정 실패. temp 원본과 사용자 저장 경로를 확인하세요.')
+
+    def _publish_ready_files(self, state):
+        if self.destination_root is None or state['global_person_id'] is None:
+            return
+        sources = {
+            'clip.mp4': Path(state['clip_path']) if state['clip_completed'] else None,
+            'crop.jpg': Path(state['folder_path']) / 'crop.jpg' if state['crop_saved'] else None,
+            'trajectory.jpg': Path(state['trajectory_path']) if state['trajectory_path'] else None,
+        }
+        if not any(sources.values()) or state['directory_failed']:
+            return
+        if state['destination_directory'] is None:
+            try:
+                parent = (self.destination_root / '이벤트' / f"person_{state['global_person_id']}"
+                          / state['first_seen'].strftime('%Y-%m-%d') / f'camera_{self.camera_id}')
+                parent.mkdir(parents=True, exist_ok=True)
+                state['destination_directory'] = self._make_directory(
+                    parent, state['first_seen'].strftime('%H시%M분%S초'))
+            except OSError:
+                state['directory_failed'] = True
+                self._move_error(state)
+                return
+
+        for name, source in sources.items():
+            if source is None or name in state['moved_files'] or name in state['failed_moves']:
+                continue
+            target = state['destination_directory'] / name
+            try:
+                # Windows rename은 덮어쓰기/볼륨 간 복사를 하지 않는다.
+                if target.exists():
+                    raise FileExistsError('Destination already exists')
+                os.rename(source, target)
+                state['moved_files'][name] = target
+            except OSError:
+                state['failed_moves'].add(name)
+                self._move_error(state)
+
+        if state['finished_at'] is not None and not state['directory_finalized']:
+            old = state['destination_directory']
+            ended = state['finished_at']
+            end_label = ended.strftime('%H시%M분%S초')
+            if ended.date() != state['first_seen'].date():
+                end_label = ended.strftime('%Y-%m-%d_%H시%M분%S초')
+            label = state['first_seen'].strftime('%H시%M분%S초') + '~' + end_label
+            sequence = 1
+            try:
+                while True:
+                    new = old.parent / (label if sequence == 1 else f'{label}_{sequence}')
+                    if new.exists():
+                        sequence += 1
+                        continue
+                    try:
+                        os.rename(old, new)
+                        break
+                    except FileExistsError:
+                        sequence += 1
+                state['destination_directory'] = new
+                state['moved_files'] = {name: new / name for name in state['moved_files']}
+            except OSError:
+                self._move_error(state)
+            # 파일 이동 실패와 동일하게 자동 재시도하지 않는다.
+            state['directory_finalized'] = True
+
+        if state['finished_at'] is not None and not state['move_failed']:
+            try:
+                Path(state['folder_path']).rmdir()
+            except OSError:
+                pass  # 이번 관측의 빈 폴더만 제거한다. 부분 파일이 있으면 보존한다.
+
     def _notify(self, state):
+        self._publish_ready_files(state)
         if self.on_update is not None:
             self.on_update(PersonMediaUpdate(
                 self.camera_id, self.execution_id, state['generation'], state['person_id'],
-                Path(state['folder_path']), state['first_seen'], state['last_seen'], state['finished_at'],
-                Path(state['clip_path']) if state['clip_completed'] else None,
-                Path(state['folder_path']) / 'crop.jpg' if state['crop_saved'] else None,
-                Path(state['trajectory_path']) if state['trajectory_path'] else None,
+                state['destination_directory'] or Path(state['folder_path']),
+                state['first_seen'], state['last_seen'], state['finished_at'],
+                state['moved_files'].get('clip.mp4', Path(state['clip_path']) if state['clip_completed'] else None),
+                state['moved_files'].get('crop.jpg', Path(state['folder_path']) / 'crop.jpg' if state['crop_saved'] else None),
+                state['moved_files'].get('trajectory.jpg', Path(state['trajectory_path']) if state['trajectory_path'] else None),
                 state['crop_task_id'],
+                state['global_person_id'], state['move_failed'],
             ))
 
     def _get_bbox_ground_anchor(self, bbox):

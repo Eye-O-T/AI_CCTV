@@ -31,7 +31,7 @@ class VideoWorker(QThread):
     event_ready = pyqtSignal(dict) # 오류, 사라짐, VLM 큐 등록 같은 이벤트 보내기
     loading_ready = pyqtSignal(str) # START 이후 첫 화면이 뜨기 전 로딩 상태 보내기
     reid_ready = pyqtSignal(object)
-    media_ready = pyqtSignal(object)  # 완료된 파일만 알린다. 최종 저장 위치로 이동은 3단계다.
+    media_ready = pyqtSignal(object)  # 완료 파일의 현재 경로와 글로벌 ID별 이동 결과를 알린다.
 
     def __init__( # start누르면 실행
         self,
@@ -159,6 +159,8 @@ class VideoWorker(QThread):
                     camera_id=self.camera_id,
                     execution_id=self.execution_id,
                     on_update=self.media_ready.emit,
+                    destination_root=self.recording_root,
+                    on_error=self._report_storage_error,
                 )
 
         if getattr(self.stream, "is_rtsp", False) and self.ai_cctv_path and self.edge_api_base_url:
@@ -449,6 +451,8 @@ class VideoWorker(QThread):
         for result in self.osnet_worker.take_results():
             if self.is_reid_result_current(result):
                 self.global_person_ids[result.observation.local_person_id] = result.global_person_id
+                if self.clip_manager is not None:
+                    self.clip_manager.assign_global_person(result.observation, result.global_person_id)
                 started = self._reid_started.pop(result.observation.task_id, None)
                 elapsed = f'{(time.monotonic() - started[1]) * 1000:.0f}' if started is not None else 'unknown'
                 score = f'{result.similarity:.3f}' if result.similarity is not None else 'none'
@@ -498,6 +502,8 @@ class VideoWorker(QThread):
             except Exception:
                 self.cleanup_errors.append("녹화 또는 클립 마무리 실패")
                 self._report_storage_error("녹화 또는 클립·궤적 저장 마무리 실패. 저장 경로·권한·디스크 공간을 확인하세요.")
+        if self.clip_manager is not None and self.clip_manager.storage_failed is True:
+            self.cleanup_errors.append('인물 자료 이동·폴더명 확정 실패')
         try:
             while not self.stream.release():
                 time.sleep(0.05)
