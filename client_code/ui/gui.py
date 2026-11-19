@@ -7,12 +7,15 @@ from cameras.api_client import CameraApiClient, valid_camera
 from ui.camera_view import CameraView
 from ui.settings_window import SettingsWindow
 from ui.resource_monitor_window import ResourceMonitorWindow
+from events.coordinator import EventCoordinator
+from pathlib import Path
 
 
 class CCTVMainWindow(QMainWindow):
     logout_requested = pyqtSignal()
     close_requested = pyqtSignal()
     shutdown_complete = pyqtSignal()
+    shutdown_warning = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -125,6 +128,7 @@ class CCTVMainWindow(QMainWindow):
         runtime.notice.connect(self._notice)
         runtime.stop_requested.connect(self._close_monitor)
         runtime.shutdown_complete.connect(self.shutdown_complete)
+        runtime.shutdown_warning.connect(self.shutdown_warning)
 
     def _refresh_runtime(self):
         self._layout_views()
@@ -182,7 +186,19 @@ class CCTVMainWindow(QMainWindow):
         self.camera_api.completed.connect(self.cameras_received)
         self.camera_api.busy_changed.connect(lambda busy: self._set_controls(True))
         self.runtime.bind_session(session)
+        store = EventCoordinator(session, self)
+        store.can_change = lambda: not self.runtime.busy and not self.runtime.shutting_down
+        store.storage_changed.connect(self._storage_changed)
+        store.notice.connect(self.statusBar().showMessage)
+        self.runtime.attach_event_store(store)
         self.reload_cameras()
+
+    def _storage_changed(self, root, locked):
+        self.ai_cctv_path = root
+        self.storage_root_path = str(Path(root).parent) if root else ''
+        self.storage_label.setText('저장 경로: ' + (root or '미설정 · 설정 → 저장 설정에서 선택하세요.')
+                                  + (' (이벤트 이력으로 경로 변경 제한)' if locked else ''))
+        self._set_controls(True)
 
     def reload_cameras(self):
         if self.camera_api is None or self.runtime.shutting_down or self.runtime.busy:
@@ -319,12 +335,15 @@ class CCTVMainWindow(QMainWindow):
     def open_settings(self):
         if self.runtime.busy or self.runtime.shutting_down:
             return
+        if self.runtime.event_store is not None:
+            self.runtime.event_store.refresh_storage()
         dialog = SettingsWindow(self, video_source=self.video_source, use_yolo=self.use_yolo,
                                 use_vlm=False, storage_root_path=self.storage_root_path,
                                 ai_cctv_path=self.ai_cctv_path,
                                 original_segment_seconds=self.original_segment_seconds,
                                 clip_max_seconds=self.clip_max_seconds,
-                                session=self.camera_api.session if self.camera_api else None)
+                                session=self.camera_api.session if self.camera_api else None,
+                                event_store=self.runtime.event_store)
         if dialog.camera_page is not None:
             dialog.camera_page.saved.connect(self.camera_saved)
         if dialog.exec_():

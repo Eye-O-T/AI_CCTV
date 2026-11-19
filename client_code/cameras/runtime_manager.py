@@ -19,6 +19,7 @@ class CameraRun:
     terminal_error: bool = False
     cleanup_failed: bool = False
     stop_started: float = 0
+    start_event_attempted: bool = False
 
 
 class CameraRuntimeManager(QObject):
@@ -37,6 +38,7 @@ class CameraRuntimeManager(QObject):
     stopped = pyqtSignal(int)
     shutdown_complete = pyqtSignal()
     global_person_ready = pyqtSignal(int, object)
+    shutdown_warning = pyqtSignal(str)
 
     def __init__(self, parent=None, api_factory=CameraApiClient, reid_factory=None):
         super().__init__(parent)
@@ -52,6 +54,7 @@ class CameraRuntimeManager(QObject):
         self._shutdown_started = False
         self.reid_pipeline = None
         self.reid_factory = reid_factory
+        self.event_store = None
         self._reid_timer = QTimer(self)
         self._reid_timer.setInterval(100)
         self._reid_timer.timeout.connect(self._poll_reid)
@@ -128,6 +131,7 @@ class CameraRuntimeManager(QObject):
 
     def can_start(self, camera):
         return bool(self.session is not None and not self.shutting_down and camera
+                    and (self.event_store is None or self.event_store.ready)
                     and camera['is_enabled'] and camera['camera_id'] not in self.runs
                     and camera['camera_id'] != self.monitor_camera_id
                     and self.occupied_slots < 2)
@@ -215,6 +219,12 @@ class CameraRuntimeManager(QObject):
     def _start(self, run):
         camera = run.camera
         camera_id = camera['camera_id']
+        if self.event_store is not None:
+            if not self.event_store.ready:
+                self.notice.emit(camera_id, '서버 저장소 설정을 확인한 뒤 다시 시작하세요.')
+                self._release(run)
+                return
+            run.options['ai_cctv_path'] = self.event_store.root
         try:
             from workers.video_worker import VideoWorker
             run.worker = VideoWorker(
@@ -236,6 +246,10 @@ class CameraRuntimeManager(QObject):
         run.worker.finished.connect(lambda r=run: self._dispatch(r, 'finished', None))
         if hasattr(run.worker, 'reid_ready'):
             run.worker.reid_ready.connect(lambda result, r=run: self._dispatch(r, 'reid', result))
+        if hasattr(run.worker, 'first_frame_ready'):
+            run.worker.first_frame_ready.connect(lambda _, r=run: self._record_camera_start(r))
+        if hasattr(run.worker, 'media_ready'):
+            run.worker.media_ready.connect(lambda _, r=run: self._drain_person_events(r))
         self.started.emit(dict(camera))
         self._status(run, '로딩 중')
         self.loading_ready.emit(camera_id, '시스템 시작 중…')
@@ -268,6 +282,36 @@ class CameraRuntimeManager(QObject):
                 self.global_person_ready.emit(camera_id, value)
         else:
             getattr(self, kind + '_ready').emit(camera_id, value)
+
+    def attach_event_store(self, store):
+        self.event_store = store
+        store.changed.connect(self.changed)
+        store.drained.connect(self._events_drained)
+
+    def _events_drained(self, warning):
+        if warning:
+            self.shutdown_warning.emit(warning)
+        self._check_shutdown()
+
+    def _record_camera_start(self, run):
+        if not self._current(run) or self.event_store is None or run.worker is None or run.start_event_attempted:
+            return
+        observed = run.worker.first_frame_at
+        if observed is not None:
+            run.start_event_attempted = True
+            self.event_store.camera_event('camera_started', run.camera['camera_id'], run.worker.execution_id, observed)
+
+    def _drain_person_events(self, run):
+        if (not self._current(run) or self.event_store is None or run.worker is None
+                or not hasattr(run.worker, 'take_person_event_updates')):
+            return
+        self._record_camera_start(run)
+        updates, overflow = run.worker.take_person_event_updates()
+        if overflow:
+            self.event_store._failed('일부 인물 이벤트의 저장 요청을 접수하지 못했습니다.')
+        for update in updates:
+            if update.camera_id == run.camera['camera_id'] and update.execution_id == run.worker.execution_id:
+                self.event_store.person_update(update)
 
     def _status(self, run, status):
         camera_id = run.camera['camera_id']
@@ -325,6 +369,8 @@ class CameraRuntimeManager(QObject):
                 if time.monotonic() - run.stop_started > 30:
                     self.notice.emit(camera_id, '정리에 시간이 걸리고 있습니다. 작업 종료를 기다리는 중입니다.')
                 continue
+            self._record_camera_start(run)
+            self._drain_person_events(run)
             if run.cleanup_failed or (run.worker is not None and not run.worker.cleanup_ok):
                 run.cleanup_failed = True
                 if self.runtime_states.get(camera_id) != '정리 실패':
@@ -333,6 +379,11 @@ class CameraRuntimeManager(QObject):
                     reason = storage_errors[-1] + ' ' if storage_errors else ''
                     self.notice.emit(camera_id, reason + '작업 정리에 실패했습니다. 재실행·화면 전환을 중단했습니다.')
                 continue
+            # Qt에서 첫 프레임 신호보다 타이머가 먼저 실행돼도 위에서 원본 시각을 기록한다.
+            if (self.event_store is not None and run.worker is not None and run.worker.first_frame_at is not None
+                    and not run.terminal_error and not run.worker.execution_failed and run.worker.stop_requested
+                    and run.worker.cleanup_finished_at is not None):
+                self.event_store.camera_event('camera_stopped', camera_id, run.worker.execution_id, run.worker.cleanup_finished_at)
             self._status(run, '오류' if run.terminal_error else '중지됨')
             storage_errors = getattr(run.worker, 'storage_errors', [])
             if storage_errors:
@@ -347,6 +398,9 @@ class CameraRuntimeManager(QObject):
     def _release(self, run):
         if not self._current(run):
             return
+        self._drain_person_events(run)
+        if self.event_store is not None and run.worker is not None and hasattr(self.event_store, 'end_execution'):
+            self.event_store.end_execution(run.camera['camera_id'], run.worker.execution_id)
         del self.runs[run.camera['camera_id']]
         if run.api is not None:
             run.api.cancel()
@@ -358,5 +412,8 @@ class CameraRuntimeManager(QObject):
     def _check_shutdown(self):
         if (self._shutdown_started and not self.busy and not self._shutdown_emitted
                 and not (self.reid_pipeline is not None and self.reid_pipeline.is_alive())):
+            if self.event_store is not None and not self.event_store.finished:
+                self.event_store.begin_shutdown()
+                return
             self._shutdown_emitted = True
             self.shutdown_complete.emit()

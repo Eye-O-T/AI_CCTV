@@ -4,11 +4,13 @@ from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+import requests
 from unittest.mock import patch
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PyQt5.QtCore import Qt, QProcess
+from PyQt5 import sip
 from PyQt5.QtTest import QTest
 from auth.api_client import AuthApiClient
 from auth.backend_process import BackendProcess
@@ -33,6 +35,21 @@ class CameraClientTests(unittest.TestCase):
         wait_for(lambda: not cls.session.busy)
         cls.session.login('admin', 'test-pass')
         wait_for(lambda: cls.session.access_token is not None)
+        root = Path(cls.tmp.name) / 'AI_CCTV'
+        root.mkdir()
+        response = requests.put(f'http://127.0.0.1:{cls.port}/api/v1/settings/storage',
+                                json={'storage_root': str(root)},
+                                headers={'Authorization': 'Bearer ' + cls.session.access_token}, timeout=5)
+        if response.status_code != 200:
+            raise AssertionError('Temporary storage setup failed')
+
+    def stop_event_store(self, window):
+        store = window.runtime.event_store
+        if store is not None:
+            if not sip.isdeleted(store):
+                store.begin_shutdown()
+                wait_for(lambda: store.finished or not store.store.is_alive())
+            store.store.join(5)
 
     @classmethod
     def tearDownClass(cls):
@@ -45,6 +62,8 @@ class CameraClientTests(unittest.TestCase):
     def test_01_management_save_edit_failure_and_main_refresh(self):
         window = CCTVMainWindow()
         window.bind_camera_session(self.session)
+        self.addCleanup(self.stop_event_store, window)
+        wait_for(lambda: window.runtime.event_store.ready)
         self.addCleanup(window.camera_api.cancel)
         self.addCleanup(window.deleteLater)
         wait_for(lambda: window.camera_api.pending is None)
@@ -164,6 +183,8 @@ class CameraClientTests(unittest.TestCase):
         window = CCTVMainWindow()
         self.addCleanup(window.deleteLater)
         window.bind_camera_session(self.session)
+        self.addCleanup(self.stop_event_store, window)
+        wait_for(lambda: window.runtime.event_store.ready)
         self.addCleanup(window.camera_api.cancel)
         wait_for(lambda: window.camera_api.pending is None)
         self.session.access_token = 'expired-for-two-runtime-details'

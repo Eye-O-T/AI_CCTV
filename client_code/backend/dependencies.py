@@ -9,9 +9,19 @@ from .errors import APIError
 from .services.auth_service import AuthService
 from .services.camera_service import CameraService
 from .services.global_person_service import GlobalPersonService
+from .services.event_service import EventService
+from .services.storage_service import StorageService
 
 
 bearer = HTTPBearer(auto_error=False)
+
+
+def get_event_service(request: Request) -> EventService:
+    return request.app.state.event_service
+
+
+def get_storage_service(request: Request) -> StorageService:
+    return request.app.state.storage_service
 
 
 def get_global_person_service(request: Request) -> GlobalPersonService:

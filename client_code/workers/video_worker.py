@@ -2,7 +2,7 @@ import threading
 import time
 import traceback
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -32,6 +32,7 @@ class VideoWorker(QThread):
     loading_ready = pyqtSignal(str) # START 이후 첫 화면이 뜨기 전 로딩 상태 보내기
     reid_ready = pyqtSignal(object)
     media_ready = pyqtSignal(object)  # 완료 파일의 현재 경로와 글로벌 ID별 이동 결과를 알린다.
+    first_frame_ready = pyqtSignal(object)
 
     def __init__( # start누르면 실행
         self,
@@ -84,6 +85,13 @@ class VideoWorker(QThread):
         self.cleanup_ok = False
         self.cleanup_errors = []
         self.storage_errors = []
+        self.first_frame_at = None
+        self.cleanup_finished_at = None
+        self.stop_requested = False
+        self.execution_failed = False
+        self._person_event_lock = threading.Lock()
+        self._person_event_updates = {}
+        self._person_event_overflow = False
 
         # vlm켜져있을때만 vlmworker만듦
         self.vlm_worker = None
@@ -118,13 +126,23 @@ class VideoWorker(QThread):
     def run(self):
         try:
             self._run_video()
+            if not self.stop_requested:
+                self.execution_failed = True
         except (OSError, cv2.error):
+            self.execution_failed = True
             self._report_storage_error("영상 저장 실패. 저장 경로·권한·디스크 공간을 확인하세요.")
         except Exception:
+            self.execution_failed = True
             self.event_ready.emit({"type": "error", "message": "영상 처리 중 오류가 발생했습니다."})
         finally:
             self.running = False
-            self._cleanup()
+            try:
+                self._cleanup()
+            except Exception:
+                self.cleanup_ok = False
+                self.execution_failed = True
+                self.event_ready.emit({'type': 'error', 'message': '영상 작업 정리에 실패했습니다.'})
+            self.cleanup_finished_at = datetime.now(timezone.utc)
 
     def _run_video(self):
         if not self.running:
@@ -134,6 +152,7 @@ class VideoWorker(QThread):
 
         # 스트림 열기
         if not self.stream.open():
+            self.execution_failed = True
             self.event_ready.emit({
                 "type": "error",
                 "message": "영상 스트림 열기 실패"
@@ -158,7 +177,7 @@ class VideoWorker(QThread):
                     disappear_timeout=3.0,
                     camera_id=self.camera_id,
                     execution_id=self.execution_id,
-                    on_update=self.media_ready.emit,
+                    on_update=self._capture_person_media,
                     destination_root=self.recording_root,
                     on_error=self._report_storage_error,
                 )
@@ -212,10 +231,16 @@ class VideoWorker(QThread):
             self._poll_crop_results()
             self._poll_reid_results()
             ret, frame = self.stream.read()
+            if ret and frame is not None and self.first_frame_at is None:
+                self.first_frame_at = datetime.now(timezone.utc)
+                self.first_frame_ready.emit(self.first_frame_at)
             self.handle_rtsp_connection_events()
-            self._expire_persons()
+            if not ret or time.monotonic() - last_frame_at > self.state_manager.disappear_timeout:
+                self._expire_persons(natural=False)
 
             if not ret:
+                if self.stop_requested:
+                    return
                 if getattr(self.stream, "is_rtsp", False):
                     # RTSP 모드에서는 일시적인 지연이나 재연결 중일 때 프레임이 없을 수 있으므로
                     # 바로 에러를 뿜지 않고 10ms 대기 후 루프를 계속 돕니다.
@@ -232,6 +257,7 @@ class VideoWorker(QThread):
                     "type": "error",
                     "message": "웹캠 프레임 수신 실패. 장치 확인 후 다시 시작하세요."
                 })
+                self.execution_failed = True
                 return
             self._waiting_notified = False
             last_frame_at = time.monotonic()
@@ -384,7 +410,8 @@ class VideoWorker(QThread):
         generation = self.tracker.tracking_generation
         if generation != self._crop_generation:
             if self.clip_manager is not None:
-                self.clip_manager.finish_all()
+                self.clip_manager.finish_all(reason='tracking_reset')
+            self.state_manager.person_states.clear()
             self.crop_worker.reset(generation)
             if self.osnet_worker is not None:
                 self.osnet_worker.reset()
@@ -460,7 +487,28 @@ class VideoWorker(QThread):
                       f'global={result.global_person_id} mode={result.mode} similarity={score} elapsed_ms={elapsed}')
                 self.reid_ready.emit(result)
 
-    def _expire_persons(self):
+    def _capture_person_media(self, update):
+        # Qt UI 신호와 별개로 최종 스냅샷을 보존한다. 프레임/궤적 점은 이 버퍼에 넣지 않는다.
+        if update.global_person_id is not None and update.crop_task_id is not None:
+            key = (update.tracking_generation, update.local_person_id, update.crop_task_id)
+            with self._person_event_lock:
+                if key in self._person_event_updates or len(self._person_event_updates) < 128:
+                    previous = self._person_event_updates.get(key)
+                    if previous is None or update.revision > previous.revision:
+                        self._person_event_updates[key] = update
+                else:
+                    self._person_event_overflow = True
+        self.media_ready.emit(update)
+
+    def take_person_event_updates(self):
+        with self._person_event_lock:
+            updates = list(self._person_event_updates.values())
+            failed = self._person_event_overflow
+            self._person_event_updates.clear()
+            self._person_event_overflow = False
+        return updates, failed
+
+    def _expire_persons(self, natural=True):
         removed_ids = self.state_manager.remove_disappeared_persons()
         if not removed_ids:
             return
@@ -475,9 +523,10 @@ class VideoWorker(QThread):
                 self.osnet_worker.end_person(person_id)
             self.global_person_ids.pop(person_id, None)
             if self.clip_manager is not None:
-                self.clip_manager.finish_person(person_id)
-            self.event_ready.emit({"type": "disappear", "person_id": person_id,
-                                   "time": datetime.now().strftime("%H:%M:%S")})
+                self.clip_manager.finish_person(person_id, reason='natural' if natural else 'stream_gap')
+            if natural:
+                self.event_ready.emit({"type": "disappear", "person_id": person_id,
+                                       "time": datetime.now().strftime("%H:%M:%S")})
 
     def _cleanup(self):
         # 이 메서드는 영상 작업 스레드에서 실행하므로 GUI를 기다리게 하지 않는다.
@@ -626,6 +675,7 @@ class VideoWorker(QThread):
         self.request_stop()
 
     def request_stop(self):
+        self.stop_requested = True
         self.running = False
         self.crop_worker.request_stop()
         if self.osnet_worker is not None:

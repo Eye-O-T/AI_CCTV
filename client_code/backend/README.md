@@ -1,6 +1,33 @@
 # PC CCTV 백엔드
 
-현재 SQLite 기반 인증 API 5개, 카메라 관리 API, 글로벌 인물 조회·등록·마지막 관측 갱신 API와 `GET /health`가 구현되어 있다. `users`, `server_runs`, `cameras`, `global_person_manage` 모델이 등록되어 서버 시작 시 없는 테이블을 생성한다. PC의 OSNet·Manager/API·카메라 큐·인증 종료·글로벌 ID 영상 표시를 연결했다. 5단계 단일 인물 두 카메라 연결은 사용자 확인했으며 다른 사람/동시 인물·지속 성능은 미검증이다. 이벤트 API는 후속 범위다. 상세 검증은 [클라이언트 README](../README.md)를 참고한다.
+현재 SQLite 기반 인증 API 5개, 카메라 관리 API, 글로벌 인물 조회·등록·마지막 관측 갱신 API와 `GET /health`가 구현되어 있다. `users`, `server_runs`, `cameras`, `global_person_manage`, `events` 모델이 등록되어 서버 시작 시 없는 테이블을 생성한다. PC의 OSNet·Manager/API·카메라 큐·인증 종료·글로벌 ID 영상 표시를 연결했다. ReID 5단계 단일 인물 두 카메라 연결은 사용자 확인했으며 다른 사람/동시 인물·지속 성능은 미검증이다. 이벤트는 2단계 모델·DTO·Repository·Service·인증된 이벤트 API 4개·저장소 설정 API 2개까지 구현했으며 PC 공용 큐/카메라 연결은 3단계에서 구현했으며 인물/미디어 자동 연결도 4단계에서 구현했다. 실제 장치 종합 검증은 5단계다. 상세 검증은 [클라이언트 README](../README.md)를 참고한다.
+
+이벤트 코드·저장 계약을 수정하거나 다음 단계를 시작할 때 [이벤트 MVP 개발 계획](../docs/EVENT_MVP_DEVELOPMENT_PLAN.md), [DB 스키마](../docs/BACKEND_SCHEMA.md)의 events 절, [API 명세](../docs/API_SPEC.md)의 이벤트 절을 읽는다. 이벤트 Router와 Service를 앱 수명에 연결했으며 Swagger/Postman에서 기존 Access로 사용할 수 있다. 다음 제품 서버 실행 시 없는 events만 추가되며 기존 네 테이블은 초기화하지 않는다.
+
+## 이벤트 MVP 2단계: API·저장소 설정
+
+- POST /api/v1/events, PATCH /api/v1/events/{event_id}/media, GET /api/v1/events, GET /api/v1/events/{event_id}와 GET/PUT /api/v1/settings/storage를 구현했다. 모두 기존 관리자 Access 인증을 사용한다. 성공 응답은 JSON DTO/no-store이며 미디어 파일은 전달하지 않는다.
+- 이벤트 저장 전 이미 존재하는 동일 볼륨의 AI_CCTV 폴더를 storage_root로 설정한다. 설정은 DB 옆 ai_cctv.storage.json에 원자적으로 저장하며 첫 이벤트 커밋 이후 다른 경로 변경을 거부한다. 동일 경로는 허용한다. 별도 설정 테이블은 없다.
+- 기본 파일은 client_code/backend/data/ai_cctv.storage.json이다. create_app(db_path, storage_config_path)로 임시 설정 경로를 주입할 수 있다. 단일 프로세스에서 설정 변경과 이벤트 저장을 같은 잠금으로 보호한다.
+- 상대 경로 문법·기존 이벤트 폴더 구조·인물/카메라/파일명·실재 일반 파일/크기·저장소 경계·하위 링크/junction 거부를 검증한다. 폴더명 변경은 모든 현재 경로를 한 PATCH로 보낸다. Writer 종료·영상 재생 가능 여부는 PC 책임이다.
+- 설정 손상은 기존 파일을 보존하며 서버 시작 실패다. 이벤트가 있는데 설정이 유실되면 다른 루트로 재설정하지 못하며 기존 설정 복원이 필요하다. 저장소가 일시적으로 없을 때도 이력 GET은 가능하다.
+- 신규 임시 DB/설정/파일 TestClient 19개·실제 Uvicorn HTTP 1개를 추가했다. 기존 68개와 합쳐 **전체 88개 통과**(33.753초), 문법(AST)·diff 검사 통과. 상세 결과와 남은 제한은 [이벤트 개발 계획](../docs/EVENT_MVP_DEVELOPMENT_PLAN.md#7-2단계-구현검증-기록)에 기록한다. 운영 DB/설정·계정·기존 미디어는 사용하지 않았다.
+- 3단계에서 PyQt 설정 동기화·공용 큐·카메라 시작/정상 중지 자동 저장·로그아웃 전 큐 마무리를 연결했다. 신규/회귀 133개와 임시 HTTP 검증 내역은 이벤트 개발 계획 3단계를 따른다. 4단계 인물/미디어 자동 저장도 연결했다. 등장 성공 뒤 미디어/사라짐을 순서대로 저장하고 경로 rename 경합과 종료 중 마지막 갱신을 처리한다. 해당 신규 19개·관련 회귀 147개 결과는 개발 계획 4단계를 따른다. 백엔드 제품 코드는 2단계 이후 바꾸지 않았다. UI 이력·알림/푸시·미디어 송출은 이번 전체 MVP 범위 밖이다.
+
+## 이벤트 MVP 1단계 검증
+
+- 신규 임시 DB 검증 15개: 네 종류 입력·NULL 조합·엄격한 타입/UUID/UTC/상대 경로 문법, FK·삭제 제한·부분 UNIQUE, 사라짐 대상/관측/시각 일치, 동시 생성·재요청/충돌, 생성/다중 경로 갱신 롤백, 안정적인 커서 조회, 기존 네 테이블 보존 및 DB 재연결 후 중복 방지를 확인한다.
+- 최종 결과: 신규 이벤트 15개 + 기존 인증·카메라·글로벌 인물 53개, **전체 68개 통과**(24.098초). 기존 API의 임시 Uvicorn HTTP 회귀도 포함하며 신규 이벤트 HTTP 검증은 아니다. 문법(AST)·diff 검사도 통과했다. 기존 테스트의 테이블 목록 기대값은 events 추가에 맞게 갱신했다.
+- 신규 이벤트 HTTP/Access 인증·저장소 실재/링크/파일 완료 검증·설정 유지·실제 카메라·PyQt·OSNet/종료 큐는 이번 단계에서 실행하지 않는다. 기존 API의 임시 HTTP 회귀와 신규 이벤트 HTTP 검증을 구분한다.
+- 운영 DB/계정·설정·미디어는 테스트에 사용하지 않는다. 신규 테이블 생성과 기존 데이터 보존은 임시 DB에서 확인한다.
+
+실행 디렉터리: `C:\GitHub_Clone\AI_CCTV`.
+
+```powershell
+.\venv311\Scripts\python.exe -B -m unittest discover -s client_code/backend/tests -v
+```
+
+제한 실행 환경에서는 가용 python3.11.exe에 기존 venv311/Lib/site-packages를 PYTHONPATH로 연결해 실행했다. 패키지를 설치/업그레이드하지 않았다. 최종 실행 결과는 이벤트 개발 계획의 1단계 기록에 남긴다.
 
 ```text
 backend/
@@ -20,7 +47,7 @@ backend/
 ## 구현 기준
 
 - [백엔드 스키마 및 제약사항](../docs/BACKEND_SCHEMA.md)을 참고한다.
-- 2026-11-19 ReID 1~5단계: [글로벌 인물 개발 계획](../docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md), [독립 글로벌 인물 API](../docs/API_SPEC.md#글로벌-인물-api--멀티카메라-reid-mvp), [DB 설계](../docs/BACKEND_SCHEMA.md)를 글로벌 인물·OSNet 작업 전에 읽는다. 영상 표시 구현과 단일 인물 사용자 확인까지 완료했으며 나머지 현장 검증은 계획을 따른다. 없는 테이블은 서버 시작에 생성하고 기존 DB 구조의 자동 변경·초기화는 하지 않는다. events는 후속 범위다.
+- 2026-11-19 ReID 1~5단계: [글로벌 인물 개발 계획](../docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md), [독립 글로벌 인물 API](../docs/API_SPEC.md#글로벌-인물-api--멀티카메라-reid-mvp), [DB 설계](../docs/BACKEND_SCHEMA.md)를 글로벌 인물·OSNet 작업 전에 읽는다. 영상 표시 구현과 단일 인물 사용자 확인까지 완료했으며 나머지 현장 검증은 계획을 따른다. 없는 테이블은 서버 시작에 생성하고 기존 DB 구조의 자동 변경·초기화는 하지 않는다. 이벤트 구현 상태는 이 문서의 최신 단계 기록을 따른다.
 - API 구현·클라이언트 연동·검증 전에는 [통합 API 명세서](../docs/API_SPEC.md)를 읽는다. 인증·카메라·글로벌 인물 API 계약과 구현이 정리되어 있다. PyQt 목록·등록·수정 및 선택 카메라 실행을 연결했다. 실제 장치 검증 범위는 클라이언트 README에 구분한다.
 - 요청 처리는 Router → Service → Repository 순서로 나눈다.
 - DB 모델과 API 요청·응답 모델을 분리한다.

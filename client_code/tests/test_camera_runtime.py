@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -35,6 +36,9 @@ class FakeWorker(QObject):
         self.active = False
         self.cleanup_ok = True
         self.stop_requested = False
+        self.execution_id = uuid4().hex
+        self.first_frame_at = self.cleanup_finished_at = None
+        self.execution_failed = False
 
     def start(self):
         self.active = True

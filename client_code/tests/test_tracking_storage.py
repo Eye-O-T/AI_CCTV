@@ -137,7 +137,7 @@ class TrackingStorageTests(unittest.TestCase):
             worker.run()
             self.assertTrue(worker.cleanup_ok)
             self.assertEqual(len(frames), 2)
-            self.assertEqual(len([e for e in events if e['type'] == 'disappear']), 2)
+            self.assertEqual(len([e for e in events if e['type'] == 'disappear']), 0)
             self.assertEqual(len(list(Path(worker.clip_manager.clip_root_dir).rglob('clip.mp4'))), 4)
             self.assertIsNone(worker.tracker)
 

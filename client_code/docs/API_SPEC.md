@@ -601,7 +601,7 @@ PyQt 시작 시 회원가입 창과 로그인 창 중 어느 화면을 표시할
 
 - 2026-11-18 1단계: **이 절의 글로벌 인물 DB 모델·3개 API를 구현했다.** 백엔드 53개·임시 HTTP 검증 후 2~5단계에서 OSNet·Manager·카메라 큐·인증 수명·영상 표시를 연결했다. API 계약은 그대로이며 단일 인물의 두 카메라 연결은 사용자 확인했다. 나머지 실장치 정확도/성능은 [GLOBAL_PERSON_DEVELOPMENT_PLAN.md](GLOBAL_PERSON_DEVELOPMENT_PLAN.md)에 미검증으로 구분한다.
 - 이번 구현은 카메라별 CropWorker → OSNetWorker → 공용 GlobalPersonManager → 글로벌 인물 DB 저장·화면 표시까지다. 이벤트 생성·event_id·매칭 상태 저장·CNN·미디어 송출은 의존하지 않는다.
-- events의 10컬럼 설계와 글로벌 인물 FK는 후속 이벤트 단계의 설계로 보존한다. 이전에 정의했던 POST /events 및 /events/{event_id}/global-match는 이번 구현 계약에서 제외하고, 이벤트 단계에서 다시 정의한다.
+- 이벤트는 아래 PC 이벤트 MVP 계약을 따른다. 과거 10컬럼·global-match API 설계는 폐기한다. 글로벌 인물 API는 이벤트 생성 응답에 의존하지 않는다.
 - Manager 한 개가 비교 → 기존/신규 결정 → API 저장 확인 → 메모리 반영을 순차 처리한다. 백엔드는 특징 추출·유사도 계산을 수행하지 않는다.
 - 비교 가능한 후보의 최고 코사인 유사도가 임계값 이상이면 기존 인물, 미만이거나 후보가 없으면 신규 인물이다. 같은 카메라에서 현재 관측 중인 다른 인물이 사용하는 글로벌 ID는 후보에서 제외하며 동점은 작은 ID를 선택한다. deferred는 사용하지 않는다.
 
@@ -687,3 +687,104 @@ PyQt 시작 시 회원가입 창과 로그인 창 중 어느 화면을 표시할
 - 동일 등록 재전송/동시 요청의 중복 방지, 같은 키의 다른 내용 거부, 실패 롤백 후 재시도와 DB 성공 뒤 응답 유실을 검증한다.
 - 서버 재시작 뒤 기존 인물 보존·재로그인·후보 복원을 확인한다. 사용자 운영 DB와 backup/을 테스트에 사용하지 않는다.
 - 멀티카메라·늦은 결과·STOP/재시작·동시 관측 충돌은 PC 통합 검증이며 OSNet 실측 정확도와 구분한다.
+
+
+---
+
+## 이벤트 API — PC 이벤트 MVP
+
+### 구현 상태와 공통 규칙
+
+2026-11-19 **2단계 이벤트 API 4개·저장소 설정 2개·기존 Access 인증 연결을 구현했다.** 임시 DB/설정/파일을 사용하는 검증과 실제 Uvicorn HTTP 검증을 수행했다. 3단계에서 PC 저장소 동기화와 공용 비동기 큐·카메라 시작/정상 중지 자동 전송을 연결했다. 4단계에서 인물 등장/자연 유실·미디어 갱신·종속 큐/종료도 연결했다. 실제 장치 종합 검증은 5단계다. [이벤트 개발 계획](EVENT_MVP_DEVELOPMENT_PLAN.md)을 먼저 읽는다.
+
+- 보호 API는 기존 관리자 Access 인증·공통 오류 JSON을 사용한다. PC/Flutter 권한 구분은 추가하지 않는다.
+- 생성/미디어 갱신 요청은 알 수 없는 필드를 거부한다. ID는 양의 JSON 정수(bool/실수/문자열 거부), 세대는 0 이상 정수이며 SQLite 정수 상한 2^63−1을 적용한다. 시간은 시간대 포함 ISO 8601 입력·UTC 정규화·고정 소수 6자리 Z 응답이다.
+- server_run_id와 event_id는 백엔드가 부여하며 생성 요청에서 거부한다. camera_execution_id는 UUID v4 문자열(기존 hex 입력 허용), 저장/응답은 표준 하이픈 문자열이다.
+- DB 모델을 직접 응답하지 않고 EventResponse를 사용한다. 인증/입력 오류에 토큰·원본 요청·내부 DB 예외를 노출하지 않는다.
+- 첫 이벤트 전 저장소 설정 필수이며 설정 없음은 409 STORAGE_ROOT_NOT_CONFIGURED. 현재 저장소 디렉터리와 파일 경계를 Service에서 검증한다. 이력 조회는 저장소가 없거나 일시적으로 이용 불가능해도 가능하다.
+
+### 1. 생성 — POST /api/v1/events
+
+EventCreate 요청:
+
+| 필드 | 조건 |
+| --- | --- |
+| event_type | person_appeared / person_disappeared / camera_started / camera_stopped 중 하나, 필수 |
+| camera_id | 등록 카메라 ID, 필수 |
+| camera_execution_id | 현재 카메라 실행 UUID v4, 필수 |
+| occurred_at | 실제 발생 시각, 필수 |
+| tracking_generation | 인물 이벤트 필수, 카메라 이벤트는 생략/null |
+| local_person_id | 인물 이벤트 필수, 카메라 이벤트는 생략/null |
+| global_person_id | 인물 이벤트 필수, 카메라 이벤트는 생략/null |
+| related_event_id | 사라짐만 필수, 나머지는 생략/null |
+| crop_path / clip_path / trajectory_path | 등장만 값 허용, 생략 시 null |
+
+```json
+{
+  "event_type": "person_appeared",
+  "camera_id": 1,
+  "camera_execution_id": "b20abf6d-b7fb-4323-b94b-581aebbd3c38",
+  "tracking_generation": 0,
+  "local_person_id": 3,
+  "global_person_id": 12,
+  "occurred_at": "2026-11-19T03:00:00.000000Z",
+  "crop_path": "이벤트/person_12/2026-11-19/camera_1/12시00분00초/crop.jpg"
+}
+```
+
+- 등장은 글로벌 ID 확정 후 저장하되 시각은 첫 탐지다. 사라짐은 정상 수신 중 약 3초 미탐지, 시각은 마지막 탐지다. 시작은 첫 프레임, 중지는 정상 정리 완료 시각이다. 발생 판단은 PC 책임이며 백엔드는 프레임/AI를 처리하지 않는다.
+- 사라짐 대상은 같은 서버 실행/카메라/카메라 UUID/세대/로컬 ID/글로벌 ID의 등장이어야 하며 시각은 등장 이상이다. STOP·끊김·초기화는 사라짐을 만들지 않는다.
+- 인물 중복 키는 (server_run_id, camera_id, camera_execution_id, tracking_generation, local_person_id, event_type), 카메라 중복 키는 (server_run_id, camera_id, camera_execution_id, event_type)다.
+- 신규 커밋 201, 같은 키·같은 불변 내용 재전송 200과 같은 event_id/현재 DTO. 불변 내용이 다르면 409 EVENT_REQUEST_CONFLICT. 생성 재요청의 미디어 경로는 반영하지 않고 현재 상태를 반환하며 경로 변경은 PATCH만 사용한다. 추가 request_id나 테이블은 없다.
+- 응답 유실은 같은 키로 재확인한다. PC 생성 요청의 옛 미디어 경로가 폴더 rename 경합으로 거부되면 같은 불변 식별값/시각으로 미디어 없는 생성 재확인을 한 번만 하고 최신 경로를 PATCH한다. 정상 생성에는 준비된 경로를 함께 보낸다. 재로그인/새 서버 실행 뒤 과거 미확정 요청 자동 재전송은 PC에서 금지한다.
+- EventResponse: 위 요청 필드 전체(생략 필드도 null로 포함) + event_id + server_run_id. DB에 저장한 상대 경로만 응답하고 서버 저장소 절대 경로는 이벤트 응답에 넣지 않는다.
+
+### 2. 미디어 — PATCH /api/v1/events/{event_id}/media
+
+- EventMediaUpdate: crop_path, clip_path, trajectory_path 중 하나 이상만 전달한다. 빈 객체/추가 필드 거부. 등장 외 이벤트는 409 EVENT_MEDIA_NOT_ALLOWED.
+- 생략은 유지, 명시 null은 제거. 세 경로를 한 요청으로 보내면 한 트랜잭션으로 갱신한다. 반복한 같은 PATCH는 같은 결과로 200이다.
+- 파일 작성 완료 → 사용자 저장 위치 이동 성공 → DB 갱신 순서. temp/아직 작성 중 파일 경로는 허용하지 않는다. 추적 종료로 폴더명 확정 시 세 경로의 최신 상태를 한 PATCH로 보낸다.
+- 경로는 AI_CCTV 기준 / 구분자 상대 경로다. 절대/드라이브/UNC/역슬래시/상위 이동/빈 항목/제어 문자/Windows 예약 문자를 거부한다. 파일은 기존 이벤트 저장 구조의 정확한 6개 경로 항목(이벤트/person_ID/YYYY-MM-DD/camera_ID/관측폴더/파일명)을 사용한다. 등장 행의 인물/카메라와 경로가 일치하고 파일명은 각 필드에 맞는 crop.jpg/clip.mp4/trajectory.jpg여야 한다. 기준 경로 아래 기존의 0바이트가 아닌 일반 파일만 허용하고 하위 심볼릭 링크·Windows junction/reparse point는 내부 목적지여도 거부한다. 갱신 후 남는 미디어 경로들은 모두 같은 관측 폴더여야 한다.
+- 순서 버전 컬럼은 추가하지 않는다. PC는 관측별로 한 요청만 진행하고 알림 revision을 비교해 최신 경로를 합친다. 자동 PATCH에는 이용 가능한 경로만 보내며 아직 없는 필드는 생략하므로 옛 요청이 나중에 완료되어도 새 파일 경로를 NULL로 지우지 않는다. 폴더명 변경 시 이용 가능한 모든 최신 경로를 한 요청으로 보낸다. 관리 API의 명시 null 제거 계약은 유지한다.
+- 성공 200 + 현재 EventResponse. 사라짐에는 미디어를 복제하지 않는다.
+
+### 3. 목록 — GET /api/v1/events
+
+- 쿼리: limit 기본 50, 1~100. before_occurred_at과 before_event_id는 둘 다 생략하거나 둘 다 전달한다. HTTP 쿼리 숫자는 0~9 문자만 받아 범위 검증 후 정수로 변환한다. 빈 값·부호·공백·소수·boolean 표기·알 수 없는 쿼리는 거부한다.
+- occurred_at DESC, event_id DESC. 커서는 마지막 행의 두 값을 전달하며 (occurred_at, event_id)가 그보다 작은 행만 반환한다. 커서 시각은 UTC로 정규화한다.
+- 성공 200 `{"items": [EventResponse, ...]}`. 빈 결과는 빈 배열이다. 다음 페이지는 마지막 행을 커서로 조회하며 결과가 비면 종료한다. total/복잡한 검색·통계·구독은 없다.
+
+### 4. 상세 — GET /api/v1/events/{event_id}
+
+성공 200 + EventResponse, 부재 404 EVENT_NOT_FOUND. 과거 서버 실행의 이력도 조회한다. 이미지/영상 파일 응답·정적 마운트·HTTP Range는 구현하지 않는다.
+
+### 5. 저장소 설정 — 2단계 구현 완료
+
+- GET /api/v1/settings/storage: Access 인증, 200 `{"storage_root": null 또는 절대경로, "locked": boolean}`. storage_root는 선택 위치 자체가 아니라 최상위 AI_CCTV 폴더다. 관리자용 설정 응답이며 이벤트 DTO에는 절대 경로를 넣지 않는다.
+- PUT /api/v1/settings/storage: Access 인증, `{"storage_root": "C:/선택위치/AI_CCTV"}`. 성공 200과 같은 설정 DTO. null/상대 경로/알 수 없는 필드 거부. 이미 존재하고 이름이 AI_CCTV인 프로젝트와 같은 볼륨의 폴더만 지정한다. 실제 경로로 정규화하며 프로젝트 temp/output 하위는 거부한다. 미디어 폴더 생성·기존 파일 이동·삭제는 수행하지 않는다.
+- 기본 설정 파일은 DB 옆의 `ai_cctv.storage.json`(`client_code/backend/data/`)이며 `{"storage_root":"절대경로"}` 형식으로 재실행에도 유지한다. 임시 파일 flush/fsync·닫기 후 같은 디렉터리에서 os.replace로 교체한다. 설정 파일 위치는 실행 디렉터리에 독립적이며 create_app(db_path, storage_config_path)로 검증 경로를 주입할 수 있다. 각 DB는 자기 설정 파일을 사용한다. 새 설정 테이블 없음.
+- 첫 이벤트 커밋 이후 다른 기준 경로는 409 STORAGE_ROOT_LOCKED. 동일 정규 경로는 허용한다. 제한은 이벤트가 카메라 종류여도 적용되며 재실행 뒤에도 유지한다.
+- 설정 변경과 이벤트 생성/미디어 갱신은 단일 프로세스의 공용 잠금과 SQLite BEGIN IMMEDIATE 순서로 조정한다. 첫 이벤트 커밋 전 검증 실패/롤백은 경로를 잠그지 않는다. 설정 교체 실패는 이전 파일과 메모리 경로를 유지한다. 3단계 GUI는 로그인/설정 화면에서 설정을 조회하고, PUT 확인 후 설정 창을 닫으며 확인된 서버 경로를 Worker에 전달한다. 미설정/설정 요청 중 START 및 촬영/정리 중 설정 변경을 차단한다. 이벤트 이력이 있으면 위치 선택도 비활성화한다.
+
+### 오류 계약
+
+| HTTP | 코드 | 조건 |
+| --- | --- | --- |
+| 401 | INVALID_ACCESS_TOKEN | 기존 Access 인증 실패 |
+| 404 | EVENT_NOT_FOUND / CAMERA_NOT_FOUND / GLOBAL_PERSON_NOT_FOUND | 관련 리소스 부재 |
+| 409 | EVENT_REQUEST_CONFLICT | 같은 키의 다른 불변 내용 |
+| 409 | EVENT_RELATION_CONFLICT | 관련 등장 종류/관측/시각 불일치 |
+| 409 | EVENT_MEDIA_NOT_ALLOWED | 등장 이외 미디어 갱신 |
+| 409 | EVENT_RUN_CONFLICT | Service의 현재 서버 실행이 없거나 running이 아님 |
+| 409 | STORAGE_ROOT_NOT_CONFIGURED / STORAGE_ROOT_LOCKED | 설정 없음/변경 제한 |
+| 422 | VALIDATION_ERROR | 종류별 입력/시각/UUID/경로/커서/범위 오류 |
+| 500 | INTERNAL_SERVER_ERROR | 예상하지 못한 DB/설정 저장 오류 |
+
+모든 성공 응답에 Cache-Control: no-store를 적용한다. POST는 Location 헤더도 반환한다. 모델/Service 및 TestClient 검증과 실제 Uvicorn HTTP 검증 결과는 이벤트 개발 계획을 따른다.
+
+### 저장소 장애와 검증 한계
+
+- 설정 파일이 손상되면 기존 내용을 초기화하지 않고 백엔드 시작을 실패시킨다. DB에 이벤트가 있는데 설정 파일이 사라지면 locked=true/storage_root=null이며 새 설정/이벤트 쓰기를 거부한다. 기존 설정 파일을 복원해야 하며 자동으로 다른 저장소를 선택하지 않는다.
+- 설정된 폴더가 일시적으로 없으면 이력/설정 GET은 유지하고 새 이벤트/미디어 쓰기는 422다. 같은 기준 경로의 복구 후 재사용하며 다른 루트로 전환하지 않는다.
+- 일반 파일 존재·비어 있지 않음·경계만 확인한다. 디코딩·Writer 종료 여부·촬영 관측과 실제 파일 내용의 관계는 백엔드에서 증명하지 않으며 PC가 완료/이동 순서를 지켜야 한다. 외부 프로세스가 검증 직후 파일을 삭제/교체하는 경우까지 원자적으로 보호하지 않는다.
+- DB와 파일은 하나의 트랜잭션이 아니다. 파일 이동 후 DB 갱신 실패 시 파일을 되돌리거나 삭제하지 않는다. 3단계 PC 저장 큐/GUI·로그아웃 연결은 구현했고 임시 HTTP/합성 입력으로 검증했다. 4단계 인물/미디어 자동 전송도 연결하고 임시 HTTP/실제 생성 파일로 검증했다. 실제 카메라/모델·장치 종합 검증은 5단계에 남아 있다.

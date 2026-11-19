@@ -71,7 +71,7 @@ class GlobalPersonAPITests(unittest.TestCase):
         self.assertEqual(len(blob), 2048)
         self.assertEqual(blob, encode_vector(payload['feature_vector']))
         self.assertEqual(created['feature_vector'], decode_vector(blob))
-        self.assertEqual(tables - {'sqlite_sequence'}, {'users', 'server_runs', 'cameras', 'global_person_manage'})
+        self.assertEqual(tables - {'sqlite_sequence'}, {'users', 'server_runs', 'cameras', 'global_person_manage', 'events'})
         target = URL + f"/{created['global_person_id']}/last-seen"
         for observed in ('2026-11-19T00:00:00+09:00', OBSERVED, '2026-11-17T00:00:00Z'):
             changed = self.client.patch(target, json={'observed_at': observed})
@@ -247,6 +247,7 @@ class GlobalPersonLifecycleTests(unittest.TestCase):
                     'name': 'preserved', 'camera_type': 'webcam', 'webcam_index': 0}).json()
             # 임시 DB를 기존 3개 테이블만 있는 상태로 만든다. 운영 DB에는 접근하지 않는다.
             with closing(sqlite3.connect(path)) as db, db:
+                db.execute('DROP TABLE events')
                 db.execute('DROP TABLE global_person_manage')
             with TestClient(create_app(path)) as client:
                 self.assertFalse(client.get(AUTH + '/signup-status').json()['signup_required'])
@@ -301,7 +302,8 @@ class GlobalPersonLifecycleTests(unittest.TestCase):
                     paths = client.get('/openapi.json').json()['paths']
                     self.assertIn(URL, paths)
                     self.assertIn(URL + '/{global_person_id}/last-seen', paths)
-                    self.assertNotIn('/api/v1/events', paths)
+                    self.assertIn('/api/v1/events', paths)
+                    self.assertNotIn('/api/v1/events/{event_id}/global-match', paths)
             finally:
                 server.should_exit = True
                 thread.join(15)

@@ -67,6 +67,8 @@ class AppController(QObject):
             self.main_window.logout_requested.connect(self.request_logout)
             self.main_window.close_requested.connect(self.request_exit)
             self.main_window.shutdown_complete.connect(self._work_stopped)
+            if hasattr(self.main_window, 'shutdown_warning'):
+                self.main_window.shutdown_warning.connect(self._event_save_warning)
             if hasattr(self.main_window, "bind_camera_session"):
                 self.main_window.bind_camera_session(self.session)
             self.main_window.show()
@@ -126,6 +128,11 @@ class AppController(QObject):
     def _work_stopped(self):
         if self.transition:
             self.session.logout()
+
+    def _event_save_warning(self, message):
+        self.return_message = '\n'.join(value for value in (self.return_message, message) if value)
+        if self.main_window:
+            self.main_window.statusBar().showMessage(message)
 
     def _signed_out(self, warning):
         if self.main_window:

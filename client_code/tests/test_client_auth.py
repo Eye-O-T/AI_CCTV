@@ -220,6 +220,26 @@ class WindowTests(unittest.TestCase):
         with patch.object(CCTVMainWindow, "bind_camera_session"):
             self.api.finish("login", tokens())
 
+    def test_logout_waits_for_event_queue_and_keeps_failure_warning(self):
+        class Drain(QObject):
+            changed = pyqtSignal()
+            drained = pyqtSignal(str)
+            finished = False
+            def begin_shutdown(self):
+                pass  # 제한 시간 또는 저장 완료 통지는 이 테스트에서 직접 전달한다.
+        self.authenticate()
+        main = self.controller.main_window
+        drain = Drain(main.runtime)
+        main.runtime.attach_event_store(drain)
+        self.controller.request_logout()
+        APP.processEvents()
+        self.assertNotEqual(self.api.calls[-1][0], 'logout')
+        drain.finished = True
+        drain.drained.emit('event save not confirmed')
+        self.assertEqual(self.api.calls[-1][0], 'logout')
+        self.api.finish('logout', {})
+        self.assertIn('event save not confirmed', self.controller.auth_window.message.text())
+
     def test_signup_login_visibility_and_validation(self):
         window = self.controller.auth_window
         self.controller.start()

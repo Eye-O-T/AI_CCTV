@@ -3,7 +3,7 @@
 import os
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import hypot
 from pathlib import Path
 from uuid import uuid4
@@ -28,6 +28,10 @@ class PersonMediaUpdate:
     crop_task_id: object = None
     global_person_id: int | None = None
     move_failed: bool = False
+    first_seen_utc: datetime | None = None
+    last_seen_utc: datetime | None = None
+    finish_reason: str | None = None
+    revision: int = 0
 
 
 class ClipManager:
@@ -86,6 +90,7 @@ class ClipManager:
             self.person_clips[person_id] = state
 
         state["last_seen"] = datetime.now()
+        state['last_seen_utc'] = state['last_seen'].astimezone(timezone.utc)
         state["last_frame"] = frame.copy()
         self._add_trajectory_point(state, bbox)
 
@@ -106,7 +111,7 @@ class ClipManager:
         if self._should_complete_preview(state, now):
             self._close_writer(state)
 
-    def finish_person(self, person_id):
+    def finish_person(self, person_id, reason='cleanup'):
         state = self.person_clips.get(person_id)
         if state is None:
             return
@@ -114,14 +119,15 @@ class ClipManager:
         self._close_writer(state)
         self._save_trajectory_image(state)
         state['finished_at'] = state['last_seen']
+        state['finish_reason'] = reason
         self._notify(state)
         del self.person_clips[person_id]
 
-    def finish_all(self):
+    def finish_all(self, reason='cleanup'):
         errors = []
         for person_id in list(self.person_clips.keys()):
             try:
-                self.finish_person(person_id)
+                self.finish_person(person_id, reason=reason)
             except Exception as error:
                 errors.append(error)
         if errors:
@@ -143,6 +149,10 @@ class ClipManager:
             "generation": generation,
             "first_seen": now,
             "last_seen": now,
+            'first_seen_utc': now.astimezone(timezone.utc),
+            'last_seen_utc': now.astimezone(timezone.utc),
+            'finish_reason': None,
+            'revision': 0,
             "folder_path": folder_path,
             "clip_index": 0,
             "clip_started_at": None,
@@ -479,6 +489,7 @@ class ClipManager:
 
     def _notify(self, state):
         self._publish_ready_files(state)
+        state['revision'] += 1
         if self.on_update is not None:
             self.on_update(PersonMediaUpdate(
                 self.camera_id, self.execution_id, state['generation'], state['person_id'],
@@ -489,6 +500,7 @@ class ClipManager:
                 state['moved_files'].get('trajectory.jpg', Path(state['trajectory_path']) if state['trajectory_path'] else None),
                 state['crop_task_id'],
                 state['global_person_id'], state['move_failed'],
+                state['first_seen_utc'], state['last_seen_utc'], state['finish_reason'], state['revision'],
             ))
 
     def _get_bbox_ground_anchor(self, bbox):

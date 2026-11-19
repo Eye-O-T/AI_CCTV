@@ -16,10 +16,15 @@ from .services.auth_service import AuthService
 from .services.server_run_service import ServerRunService
 from .routers.global_persons import router as global_person_router
 from .services.global_person_service import GlobalPersonService
+from .routers.events import router as event_router
+from .routers.settings import router as settings_router
+from .services.event_service import EventService
+from .services.storage_service import StorageService
 
 
-def create_app(db_path: Path | None = None) -> FastAPI:
+def create_app(db_path: Path | None = None, storage_config_path: Path | None = None) -> FastAPI:
     path = (db_path or DEFAULT_DB_PATH).resolve()
+    config_path = (storage_config_path or path.with_suffix('.storage.json')).resolve()
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -31,12 +36,15 @@ def create_app(db_path: Path | None = None) -> FastAPI:
             runs = ServerRunService(factory)
             try:
                 Base.metadata.create_all(engine)
+                storage = StorageService(factory, config_path)
                 run_id = runs.start()
                 auth = AuthService(factory, run_id)
                 application.state.auth_service = auth
                 application.state.camera_service = CameraService(factory)
                 global_persons = GlobalPersonService(factory)
                 application.state.global_person_service = global_persons
+                application.state.storage_service = storage
+                application.state.event_service = EventService(factory, run_id, storage)
                 yield
             finally:
                 if global_persons is not None:
@@ -62,7 +70,11 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         allowed = {"username", "password", "password_confirm", "refresh_token",
                    "camera_id", "name", "camera_type", "webcam_index", "rtsp_url",
                    "edge_api_base_url", "is_enabled", "created_at", "updated_at",
-                   "global_person_id", "request_id", "feature_vector", "observed_at"}
+                   "global_person_id", "request_id", "feature_vector", "observed_at",
+                   "event_id", "event_type", "server_run_id", "camera_execution_id",
+                   "tracking_generation", "local_person_id", "related_event_id", "occurred_at",
+                   "crop_path", "clip_path", "trajectory_path", "storage_root",
+                   "limit", "before_occurred_at", "before_event_id"}
         field = next((item for item in location if isinstance(item, str) and item in allowed), None)
         error = APIError(422, "VALIDATION_ERROR", "요청 입력을 확인해 주세요.", field)
         return JSONResponse(status_code=422, content=error.body())
@@ -75,6 +87,8 @@ def create_app(db_path: Path | None = None) -> FastAPI:
     application.include_router(router)
     application.include_router(camera_router)
     application.include_router(global_person_router)
+    application.include_router(event_router)
+    application.include_router(settings_router)
 
     @application.get("/health")
     def health():

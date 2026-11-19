@@ -29,11 +29,14 @@ class SettingsWindow(QDialog):
         ai_cctv_path="",
         original_segment_seconds=10,
         clip_max_seconds=10,
-        session=None
+        session=None,
+        event_store=None
     ):
         super().__init__(parent)
 
         self.session = session
+        self.event_store = event_store
+        self._path_selected = False
         self.camera_page = None
         self.selected_source = video_source
         self.use_yolo = use_yolo
@@ -51,6 +54,11 @@ class SettingsWindow(QDialog):
         )
 
         self.init_ui()
+        if self.event_store is not None:
+            self._storage_controls()
+            self.event_store.changed.connect(self._storage_controls)
+            self.event_store.storage_changed.connect(self._storage_refreshed)
+            self.event_store.settings_finished.connect(self._storage_saved)
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -133,7 +141,10 @@ class SettingsWindow(QDialog):
     def save_basic_settings(self):
         self.use_yolo = self.yolo_checkbox.isChecked()
         self.use_vlm = False
-        self.accept()
+        if self.event_store is not None and self.ai_cctv_path != self.event_store.root:
+            self.save_storage_settings()
+        elif self.event_store is None or not self.event_store.settings_pending:
+            self.accept()
 
     def create_empty_page(self, title_text, desc_text):
         page = QWidget()
@@ -312,6 +323,8 @@ class SettingsWindow(QDialog):
         return page
 
     def select_storage_path(self):
+        if self.event_store is not None and (self.event_store.locked or not self.event_store.loaded):
+            return
         selected_path = QFileDialog.getExistingDirectory(
             self,
             "영상 저장 위치 선택"
@@ -324,11 +337,16 @@ class SettingsWindow(QDialog):
         original_path = os.path.join(ai_cctv_path, "원본 녹화본")
         event_clip_path = os.path.join(ai_cctv_path, "이벤트")
 
-        os.makedirs(original_path, exist_ok=True)
-        os.makedirs(event_clip_path, exist_ok=True)
+        try:
+            os.makedirs(original_path, exist_ok=True)
+            os.makedirs(event_clip_path, exist_ok=True)
+        except OSError:
+            self.storage_result_label.setText('저장 폴더를 만들지 못했습니다. 경로와 권한을 확인하세요.')
+            return
 
         self.storage_root_path = selected_path
         self.ai_cctv_path = ai_cctv_path
+        self._path_selected = True
 
         self.storage_path_input.setText(ai_cctv_path)
         self.storage_result_label.setText("저장 폴더가 생성되었습니다.")
@@ -358,6 +376,29 @@ class SettingsWindow(QDialog):
         self.storage_save_result.setStyleSheet(
             "font-size: 14px; color: #22c55e;"
         )
-        self.storage_save_result.setText("저장 설정이 적용되었습니다.")
+        if self.event_store is None:
+            self.storage_save_result.setText('저장 설정이 적용되었습니다.')
+            self.accept()
+        elif not self.event_store.settings_pending and self.event_store.set_root(self.ai_cctv_path):
+            self.btn_storage_save.setEnabled(False)
+            self.storage_save_result.setText('서버 저장소 설정을 확인하고 있습니다…')
 
-        self.accept()
+    def _storage_saved(self, success, message):
+        self.btn_storage_save.setEnabled(True)
+        if success:
+            self.ai_cctv_path = self.event_store.root
+            self.storage_root_path = os.path.dirname(self.ai_cctv_path)
+            self.accept()
+        else:
+            self.storage_save_result.setText(message)
+
+    def _storage_controls(self):
+        self.btn_select_storage_path.setEnabled(self.event_store.loaded and not self.event_store.locked
+                                               and not self.event_store.settings_pending)
+
+    def _storage_refreshed(self, root, locked):
+        if not self._path_selected:
+            self.ai_cctv_path = root
+            self.storage_root_path = os.path.dirname(root) if root else ''
+            self.storage_path_input.setText(root)
+        self._storage_controls()
