@@ -1,6 +1,6 @@
-# OSNet 특징 추출·공용 매칭·카메라 연결 — 2~4단계
+# OSNet 특징 추출·공용 매칭·영상 표시 — 2~5단계
 
-저장된 crop 5장→대표 벡터→공용 Manager/API 저장과 카메라별 OSNetWorker·큐·관측/로그인 수명 연결을 구현했다. 글로벌 ID 화면 표시·실제 카메라 정확도/성능 검증은 5단계다. 단계별 작업과 인계는 [개발 계획](../docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md)을 읽는다.
+저장된 crop 5장→대표 벡터→공용 Manager/API 저장·카메라별 큐·영상 Local/Global 표시를 구현했다. 사용자 실촬영에서 단일 인물의 두 카메라 Global 1 연결을 확인했다. 다른 사람/동시 인물·지속 성능은 미검증이다. 단계별 작업과 인계는 [개발 계획](../docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md)을 읽는다.
 
 ## 실행 환경과 가중치 준비
 
@@ -111,3 +111,17 @@ manager.start()                                    # 시작 조회·HTTP는 작�
 4단계의 이번 검증은 기본 앱/운영 DB를 실행하지 않고 임시·합성 환경에서 수행했다. 신규 14개·crop 19개·인증 전환 25개가 통과했다. 추가 카메라 실행/멀티카메라 회귀는 25개 중 22개 통과이며 기존 CAP_DSHOW 영상 파일 입력 3개가 실패했다. 소유 입력 코드는 수정하지 않았다. 자세한 실패 이름은 개발 계획과 기존 클라이언트 README 기록을 따른다.
 
 기존 crop 두 묶음으로 실제 CUDA 모델·OSNetWorker 두 개·공용 Manager·임시 HTTP/DB 전체 연결도 확인했다(output/reid_stage4/report.json). 원본 사진은 보존했다. 실제 두 장치 영상·YOLO 동시 실행·동일인 정답 정확도와 임계값 튜닝은 5단계에서 확인한다.
+
+## 글로벌 ID 영상 표시 — 5단계
+
+프로그램을 완전히 종료 후 다시 실행하면 영상의 첫 줄은 Local:1 Global:12, 둘째 줄은 FULL/PARTIAL Det:0.97로 표시된다. Global:--는 아직 연결된 글로벌 ID가 없다는 뜻이다. Det는 YOLO 탐지 신뢰도이고 코사인 유사도가 아니다. 전신으로 판정되지 않아도 앞서 같은 관측에서 확정한 글로벌 ID는 유지한다. 추적 종료/초기화·재시작 후에는 이전 ID를 표시하지 않는다.
+
+매칭 완료 때 터미널의 [ReID] 로그에서 camera/local/global/mode/similarity/elapsed_ms를 확인할 수 있다. elapsed_ms는 5장 저장 완료 결과 수신부터 글로벌 결과 반영까지이며 crop 수집 대기 시간은 제외한다. 최초 후보가 없으면 similarity=none이다. 벡터·토큰 원문은 출력하지 않는다.
+
+라벨 4개·pipeline 14개·crop 19개로 이번 37개 검증을 통과했고 합성 라벨도 시각 확인했다. 예시는 output/reid_stage5/label_preview.png다. 사용자 실촬영에서는 카메라 1/2의 Local 1이 모두 기존 Global 1로 연결됐고 유사도 0.936/0.904, 결과 반영 328/329ms가 보고됐다. 유사도는 저장된 대표 벡터 기준이며 정확도 비율이 아니다. 재등장·재실행·다른 사람·동시 두 사람·지속 FPS/GPU 메모리는 미검증이고 임계값 0.80은 변경하지 않았다.
+
+실행 디렉터리: `C:\GitHub_Clone\AI_CCTV`.
+
+```powershell
+.\venv311\Scripts\python.exe -B -m unittest discover -s client_code/tests -p test_reid_labels.py -v
+```

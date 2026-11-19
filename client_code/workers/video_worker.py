@@ -65,6 +65,7 @@ class VideoWorker(QThread):
         self._reid_pending = deque()
         self._reid_overflow_reported = False
         self.global_person_ids = {}
+        self._reid_started = {}
         self.state_manager = PersonStateManager(disappear_timeout=3.0)
         self.ai_cctv_path = str(self.run_directory) if ai_cctv_path else ''
         self.original_segment_seconds = original_segment_seconds
@@ -91,6 +92,7 @@ class VideoWorker(QThread):
         if self.osnet_worker is not None:
             self.osnet_worker.request_stop()
         self.global_person_ids.clear()
+        self._reid_started.clear()
 
         if self.vlm_worker is not None:
             self.vlm_worker.request_stop()
@@ -324,38 +326,7 @@ class VideoWorker(QThread):
                 if state is not None and state.get("vlm_done", False):
                     vlm_text = " VLM_DONE"
 
-                label = f"ID:{person_id} {status} {conf:.2f}{vlm_text}"
-
-                font_scale = 0.9
-                font_thickness = 3
-                text_size, baseline = cv2.getTextSize(
-                    label,
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    font_scale,
-                    font_thickness,
-                )
-                label_x = max(0, x1)
-                label_y = max(text_size[1] + 8, y1 - 10)
-                bg_x2 = min(frame.shape[1], label_x + text_size[0] + 8)
-                bg_y1 = max(0, label_y - text_size[1] - 8)
-                bg_y2 = min(frame.shape[0], label_y + baseline + 4)
-
-                cv2.rectangle(
-                    frame,
-                    (label_x, bg_y1),
-                    (bg_x2, bg_y2),
-                    (0, 0, 0),
-                    -1,
-                )
-                cv2.putText(
-                    frame,
-                    label,
-                    (label_x + 4, label_y),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    font_scale,
-                    color,
-                    font_thickness
-                )
+                self._draw_person_label(frame, bbox, person_id, status, conf, color, vlm_text)
             # 사라진 사람 메모리에서 제거 후 업데이트
             self._expire_persons()
 
@@ -372,6 +343,31 @@ class VideoWorker(QThread):
             # CCTVMainWindow.update_frame()에서 이 프레임 받아서 송출
             self.frame_ready.emit(frame)
 
+    def _draw_person_label(self, frame, bbox, person_id, status, confidence, color, vlm_text=''):
+        """로컬/글로벌 ID와 탐지 신뢰도를 분리한다. OpenCV용 ASCII만 사용한다."""
+        global_id = self.global_person_ids.get(person_id)
+        lines = (f'Local:{person_id} Global:{global_id if global_id is not None else "--"}',
+                 f'{status} Det:{confidence:.2f}{vlm_text}')
+        scale, thickness = .7, 2
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        sizes = [cv2.getTextSize(line, font, scale, thickness) for line in lines]
+        width = max(size[0][0] for size in sizes)
+        available = max(1, frame.shape[1] - 8)
+        if width > available:
+            scale *= available / width
+            sizes = [cv2.getTextSize(line, font, scale, thickness) for line in lines]
+        width = max(size[0][0] for size in sizes)
+        text_height = max(size[0][1] for size in sizes)
+        row_height = text_height + max(size[1] for size in sizes) + 4
+        block_height = row_height * len(lines) + 8
+        left = max(0, min(int(bbox[0]), frame.shape[1] - width - 8))
+        top = max(0, int(bbox[1]) - block_height - 4)
+        cv2.rectangle(frame, (left, top), (min(frame.shape[1] - 1, left + width + 8),
+                      min(frame.shape[0] - 1, top + block_height)), (0, 0, 0), -1)
+        for index, line in enumerate(lines):
+            cv2.putText(frame, line, (left + 4, top + 4 + text_height + index * row_height),
+                        font, scale, color, thickness, cv2.LINE_AA)
+
     def _collect_crops(self, frame, persons):
         generation = self.tracker.tracking_generation
         if generation != self._crop_generation:
@@ -380,6 +376,7 @@ class VideoWorker(QThread):
                 self.osnet_worker.reset()
             self._reid_pending.clear()
             self.global_person_ids.clear()
+            self._reid_started.clear()
             self._crop_generation = generation
         for person in persons:
             self.crop_worker.submit(person['person_id'], frame, person['bbox'])
@@ -397,6 +394,7 @@ class VideoWorker(QThread):
                       f'5장 저장 완료 ({result["paths"][0].parent})')
                 if self.osnet_worker is not None and self.running and result.get('observed_at') is not None:
                     if len(self._reid_pending) < 16:
+                        self._reid_started[result['task_id']] = (result['person_id'], time.monotonic())
                         self._reid_pending.append(result)
                     elif not self._reid_overflow_reported:
                         self._reid_overflow_reported = True
@@ -413,11 +411,13 @@ class VideoWorker(QThread):
             return
         if not self.running or not self.osnet_worker.accepting:
             self._reid_pending.clear()
+            self._reid_started.clear()
             return
         from reid.tasks import Observation
         while self._reid_pending:
             result = self._reid_pending[0]
             if not self.crop_worker.is_result_current(result):
+                self._reid_started.pop(result['task_id'], None)
                 self._reid_pending.popleft()
                 continue
             observation = Observation(result['task_id'], self.camera_id, self.execution_id,
@@ -431,6 +431,11 @@ class VideoWorker(QThread):
         for result in self.osnet_worker.take_results():
             if self.is_reid_result_current(result):
                 self.global_person_ids[result.observation.local_person_id] = result.global_person_id
+                started = self._reid_started.pop(result.observation.task_id, None)
+                elapsed = f'{(time.monotonic() - started[1]) * 1000:.0f}' if started is not None else 'unknown'
+                score = f'{result.similarity:.3f}' if result.similarity is not None else 'none'
+                print(f'[ReID] camera={self.camera_id} local={result.observation.local_person_id} '
+                      f'global={result.global_person_id} mode={result.mode} similarity={score} elapsed_ms={elapsed}')
                 self.reid_ready.emit(result)
 
     def _expire_persons(self):
@@ -440,6 +445,9 @@ class VideoWorker(QThread):
         if self.tracker is not None:
             self.tracker.expire_persons(removed_ids)
         for person_id in removed_ids:
+            for task_id, (local_id, _) in list(self._reid_started.items()):
+                if local_id == person_id:
+                    self._reid_started.pop(task_id, None)
             self.crop_worker.remove_person(person_id)
             if self.osnet_worker is not None:
                 self.osnet_worker.end_person(person_id)
@@ -493,6 +501,7 @@ class VideoWorker(QThread):
                 self.osnet_worker.join(timeout=.1)
         self._reid_pending.clear()
         self.global_person_ids.clear()
+        self._reid_started.clear()
         self.tracker = None
         self.state_manager.person_states.clear()
         self.cleanup_ok = not self.cleanup_errors

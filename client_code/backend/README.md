@@ -1,6 +1,6 @@
 # PC CCTV 백엔드
 
-현재 SQLite 기반 인증 API 5개, 카메라 관리 API, 글로벌 인물 조회·등록·마지막 관측 갱신 API와 `GET /health`가 구현되어 있다. `users`, `server_runs`, `cameras`, `global_person_manage` 모델이 등록되어 서버 시작 시 없는 테이블을 생성한다. PyQt 인증·카메라 관리와 서버 자동 시작·종료는 연결되어 있다. PC의 OSNet 추출·공용 Manager/API·카메라별 큐와 로그인 종료 연결을 2~4단계에서 구현했다. 글로벌 ID 화면 표시·실장치 정확도 검증 및 이벤트 API는 후속 범위다. 클라이언트 실행·연동 검증은 [클라이언트 README](../README.md)를 참고한다.
+현재 SQLite 기반 인증 API 5개, 카메라 관리 API, 글로벌 인물 조회·등록·마지막 관측 갱신 API와 `GET /health`가 구현되어 있다. `users`, `server_runs`, `cameras`, `global_person_manage` 모델이 등록되어 서버 시작 시 없는 테이블을 생성한다. PC의 OSNet·Manager/API·카메라 큐·인증 종료·글로벌 ID 영상 표시를 연결했다. 5단계 단일 인물 두 카메라 연결은 사용자 확인했으며 다른 사람/동시 인물·지속 성능은 미검증이다. 이벤트 API는 후속 범위다. 상세 검증은 [클라이언트 README](../README.md)를 참고한다.
 
 ```text
 backend/
@@ -20,7 +20,7 @@ backend/
 ## 구현 기준
 
 - [백엔드 스키마 및 제약사항](../docs/BACKEND_SCHEMA.md)을 참고한다.
-- 2026-11-19 ReID 1~4단계: [글로벌 인물 개발 계획](../docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md), [독립 글로벌 인물 API](../docs/API_SPEC.md#글로벌-인물-api--멀티카메라-reid-mvp), [DB 설계](../docs/BACKEND_SCHEMA.md)를 글로벌 인물·OSNet 작업 전에 읽는다. 다음은 화면 표시·실촬영 검증이다. 다음 서버 실행에서 없는 글로벌 인물 테이블이 생성되며 기존 DB 구조의 자동 변경·초기화는 하지 않는다. events는 후속 범위다.
+- 2026-11-19 ReID 1~5단계: [글로벌 인물 개발 계획](../docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md), [독립 글로벌 인물 API](../docs/API_SPEC.md#글로벌-인물-api--멀티카메라-reid-mvp), [DB 설계](../docs/BACKEND_SCHEMA.md)를 글로벌 인물·OSNet 작업 전에 읽는다. 영상 표시 구현과 단일 인물 사용자 확인까지 완료했으며 나머지 현장 검증은 계획을 따른다. 없는 테이블은 서버 시작에 생성하고 기존 DB 구조의 자동 변경·초기화는 하지 않는다. events는 후속 범위다.
 - API 구현·클라이언트 연동·검증 전에는 [통합 API 명세서](../docs/API_SPEC.md)를 읽는다. 인증·카메라·글로벌 인물 API 계약과 구현이 정리되어 있다. PyQt 목록·등록·수정 및 선택 카메라 실행을 연결했다. 실제 장치 검증 범위는 클라이언트 README에 구분한다.
 - 요청 처리는 Router → Service → Repository 순서로 나눈다.
 - DB 모델과 API 요청·응답 모델을 분리한다.

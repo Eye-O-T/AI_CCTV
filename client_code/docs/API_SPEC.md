@@ -6,7 +6,7 @@
 - 카메라 구현 범위(2026-10-07): 모델·스키마·Repository·Service·Router 및 등록·목록·상세·부분 수정 API. 임시 DB 자동 테스트와 실제 로컬 HTTP 검증을 완료했다. PyQt 관리는 연결되어 있으며, 2026-10-08 최대 두 카메라 실행·전체/개별 보기까지 구현했다. 클라이언트 동시 실행은 AI OFF 합성 입력으로 검증했으며 실제 장치·YOLO 동시 성능은 미검증이다. Flutter용 영상 송출은 미구현이다.
 - 관리 방식: API 명세는 이 파일 하나에서 관리한다. 카메라·이벤트 등은 합의한 뒤 문서 하단에 `---` 구분선과 독립된 제목으로 추가한다.
 - DB 구조와 저장 경계는 [BACKEND_SCHEMA.md](BACKEND_SCHEMA.md)를 함께 참고한다.
-- ReID 1~4단계(2026-11-19): 글로벌 인물 API·모델·PC OSNet 추출·공용 Manager에 카메라별 OSNetWorker·큐·인증 수명 연결을 추가했다. 화면 글로벌 ID 표시·실장치 정확도/성능은 5단계다. 상세 검증 상태는 개발 계획을 따른다.
+- ReID 1~5단계(2026-11-19): 글로벌 인물 API·모델·PC OSNet·공용 Manager·카메라 큐·인증 수명·Local/Global 표시를 구현했다. 사용자 실촬영의 단일 인물 연결과 나머지 정확도/성능 미검증 범위를 개발 계획에 구분한다. 5단계에서 API 계약은 변경하지 않았다.
 
 ## 공통 규칙
 
@@ -599,7 +599,7 @@ PyQt 시작 시 회원가입 창과 로그인 창 중 어느 화면을 표시할
 
 ### 1. 범위와 구현 상태
 
-- 2026-11-18 1단계: **이 절의 글로벌 인물 DB 모델·3개 API를 구현했다.** 백엔드 53개·임시 HTTP 검증 후 2~4단계에서 OSNet 추출·Manager·카메라별 큐·인증 수명을 연결했다. API 계약은 그대로이며 글로벌 ID 화면 표시·실장치 정확도/성능은 미검증이다. 설정·검증 범위는 [GLOBAL_PERSON_DEVELOPMENT_PLAN.md](GLOBAL_PERSON_DEVELOPMENT_PLAN.md)를 따른다.
+- 2026-11-18 1단계: **이 절의 글로벌 인물 DB 모델·3개 API를 구현했다.** 백엔드 53개·임시 HTTP 검증 후 2~5단계에서 OSNet·Manager·카메라 큐·인증 수명·영상 표시를 연결했다. API 계약은 그대로이며 단일 인물의 두 카메라 연결은 사용자 확인했다. 나머지 실장치 정확도/성능은 [GLOBAL_PERSON_DEVELOPMENT_PLAN.md](GLOBAL_PERSON_DEVELOPMENT_PLAN.md)에 미검증으로 구분한다.
 - 이번 구현은 카메라별 CropWorker → OSNetWorker → 공용 GlobalPersonManager → 글로벌 인물 DB 저장·화면 표시까지다. 이벤트 생성·event_id·매칭 상태 저장·CNN·미디어 송출은 의존하지 않는다.
 - events의 10컬럼 설계와 글로벌 인물 FK는 후속 이벤트 단계의 설계로 보존한다. 이전에 정의했던 POST /events 및 /events/{event_id}/global-match는 이번 구현 계약에서 제외하고, 이벤트 단계에서 다시 정의한다.
 - Manager 한 개가 비교 → 기존/신규 결정 → API 저장 확인 → 메모리 반영을 순차 처리한다. 백엔드는 특징 추출·유사도 계산을 수행하지 않는다.

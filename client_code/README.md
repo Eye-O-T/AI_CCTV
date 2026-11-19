@@ -1,6 +1,6 @@
 # PC CCTV 클라이언트
 
-멀티카메라 글로벌 인물 ID 작업 전에는 [글로벌 인물 개발 계획](docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md)을 읽는다. 1~3단계 DB/API·OSNet 추출·공용 Manager에 이어 2026-11-19 4단계 카메라별 OSNetWorker·큐·관측/로그인 수명을 연결했다. 신규 14개·crop 19개·인증 25개 통과, 카메라 실행/멀티카메라 회귀 25개 중 22개 통과(기존 CAP_DSHOW 파일 입력 3개 실패). 실제 저장 crop의 CUDA→임시 HTTP/DB 연결도 확인했다. 사용법은 [reid/README.md](reid/README.md)를 따르며, 다음 5단계는 글로벌 ID 화면 표시·실장치 정확도/성능 검증이다.
+멀티카메라 글로벌 인물 ID 작업 전에는 [글로벌 인물 개발 계획](docs/GLOBAL_PERSON_DEVELOPMENT_PLAN.md)을 읽는다. 2026-11-19 5단계 Local/Global 영상 표시까지 구현했으며 라벨·pipeline·crop 관련 37개를 확인했다. 사용자 실촬영에서 두 카메라의 단일 인물이 Global 1에 연결됐다(유사도 0.936/0.904, 저장 완료 후 반영 328/329ms). 다른 사람·동시 두 사람·지속 성능은 미검증이다. 이전 CAP_DSHOW 영상 파일 입력 실패 3개는 그대로 구분한다. 사용법은 [reid/README.md](reid/README.md)를 따른다.
 
 ## Crop 비동기 전환 2단계 (2026-11-18)
 
