@@ -192,7 +192,11 @@ class SyntheticMultiCameraTests(unittest.TestCase):
         self.assertTrue(all(model.calls >= 5 for model in FakeYOLO.instances))
 
     def _run_sources(self, use_yolo):
-        with TemporaryDirectory() as temp:
+        open_capture = cv2.VideoCapture
+        # 합성 AVI는 장치 전용 DSHOW 대신 파일 백엔드로 연다. 제품 장치 연결은 변경하지 않는다.
+        with TemporaryDirectory() as temp, \
+                patch('storage.recording_manager.DEFAULT_TEMP_ROOT', Path(temp) / 'recording-temp'), \
+                patch('video.video_stream.cv2.VideoCapture', side_effect=lambda source, *args: open_capture(source, cv2.CAP_ANY)):
             paths = {}
             for camera_id, color in ((7, 60), (8, 180)):
                 path = str(Path(temp) / f'{camera_id}.avi')
@@ -260,7 +264,10 @@ class SyntheticMultiCameraTests(unittest.TestCase):
                         self.assertEqual(len(list(worker.run_directory.rglob('trajectory.jpg'))), 2)
                         self.assertFalse(list(worker.run_directory.rglob('full_crop.jpg')))
                         self.assertIsNone(worker.tracker)
-                    videos = list(worker.run_directory.rglob('*.mp4'))
+                    recordings = list((Path(temp) / '원본 녹화본').glob(f'*/camera_{worker.camera_id}/*.mp4'))
+                    self.assertTrue(recordings)
+                    self.assertFalse(list(worker.run_directory.rglob('recording_*.mp4')))
+                    videos = list(worker.run_directory.rglob('*.mp4')) + recordings
                     self.assertTrue(videos)
                     for video in videos:
                         capture = cv2.VideoCapture(str(video))

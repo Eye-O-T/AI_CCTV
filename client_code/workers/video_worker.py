@@ -68,6 +68,7 @@ class VideoWorker(QThread):
         self._reid_started = {}
         self.state_manager = PersonStateManager(disappear_timeout=3.0)
         self.ai_cctv_path = str(self.run_directory) if ai_cctv_path else ''
+        self.recording_root = str(root) if ai_cctv_path else ''
         self.original_segment_seconds = original_segment_seconds
         self.clip_max_seconds = clip_max_seconds
         self.recording_manager = None
@@ -139,9 +140,10 @@ class VideoWorker(QThread):
             fps = self.stream.get_fps() # 현재 영상 스트림에서 fps가져오기. 이게 있어야 녹화 정상적으로 가능
 
             self.recording_manager = RecordingManager(
-                base_dir=self.ai_cctv_path,
+                base_dir=self.recording_root,
                 fps=fps,
-                segment_seconds=self.original_segment_seconds
+                segment_seconds=self.original_segment_seconds,
+                camera_id=self.camera_id,
             )
             if self.use_yolo:
                 self.clip_manager = ClipManager(

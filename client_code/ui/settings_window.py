@@ -181,7 +181,7 @@ class SettingsWindow(QDialog):
 
         path_desc = QLabel(
             "위치를 선택하면 해당 위치에 AI_CCTV 폴더가 생성되고,\n"
-            "하위 폴더로 원본 녹화본 / 이벤트 CLIP 폴더가 생성됩니다."
+            "하위 폴더로 원본 녹화본 / 이벤트 폴더가 생성됩니다."
         )
         path_desc.setStyleSheet("font-size: 14px; color: #94a3b8;")
         storage_layout.addWidget(path_desc)
@@ -322,7 +322,7 @@ class SettingsWindow(QDialog):
 
         ai_cctv_path = os.path.join(selected_path, "AI_CCTV")
         original_path = os.path.join(ai_cctv_path, "원본 녹화본")
-        event_clip_path = os.path.join(ai_cctv_path, "이벤트 CLIP")
+        event_clip_path = os.path.join(ai_cctv_path, "이벤트")
 
         os.makedirs(original_path, exist_ok=True)
         os.makedirs(event_clip_path, exist_ok=True)

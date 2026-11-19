@@ -38,6 +38,13 @@ class FakeYOLO:
 
 
 class TrackingStorageTests(unittest.TestCase):
+    def setUp(self):
+        temporary = TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        override = patch('storage.recording_manager.DEFAULT_TEMP_ROOT', Path(temporary.name))
+        override.start()
+        self.addCleanup(override.stop)
+
     def test_real_bytetrack_ids_survive_other_camera_creation_and_reset(self):
         from detection.isolated_byte_tracker import IsolatedBYTETracker
         from ultralytics.engine.results import Boxes
