@@ -38,6 +38,7 @@ class EventCoordinator(QObject):
     notice = pyqtSignal(str)
     settings_finished = pyqtSignal(bool, str)
     drained = pyqtSignal(str)
+    event_saved = pyqtSignal(object)
 
     def __init__(self, session, parent=None, store_factory=EventStore):
         super().__init__(parent)
@@ -250,6 +251,8 @@ class EventCoordinator(QObject):
             state.saved_media = {name: payload[name] for name in MEDIA}
         else:
             state.disappeared = True
+        if not error and operation != 'media':
+            self.event_saved.emit(dict(payload))
         self._pump_person(key)
 
     def _failed(self, message):
@@ -292,6 +295,8 @@ class EventCoordinator(QObject):
                     error = 'INVALID_RESPONSE'
             if error:
                 self._failed('이벤트 저장 또는 저장소 설정을 확인하지 못했습니다. 설정·서버 연결을 확인하세요.')
+            elif kind in ('camera_started', 'camera_stopped'):
+                self.event_saved.emit(dict(payload))
             if kind.startswith('storage_'):
                 self.settings_pending = False
             if kind == 'storage_put':

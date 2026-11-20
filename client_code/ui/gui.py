@@ -9,6 +9,7 @@ from ui.event_timeline import EventTimeline
 from ui.settings_window import SettingsWindow
 from ui.resource_monitor_window import ResourceMonitorWindow
 from events.coordinator import EventCoordinator
+from events.history import EventHistory
 from pathlib import Path
 
 
@@ -39,6 +40,7 @@ class CCTVMainWindow(QMainWindow):
         self.allow_close = False
         self.runtime = CameraRuntimeManager(self)
         self.camera_api = None
+        self.event_history = None
         self.selected_camera_id = None
         self.camera_rows = {}
         self.views = {}
@@ -185,11 +187,18 @@ class CCTVMainWindow(QMainWindow):
         self._view(camera).set_camera(camera)
 
     def bind_camera_session(self, session):
+        if self.event_history is not None:
+            self.event_history.close()
+            self.event_history.deleteLater()
+        self.event_timeline.set_events([])
+        self.event_history = EventHistory(session, self.event_timeline, self)
+        self.event_history.load_more()
         self.camera_api = CameraApiClient(session, self)
         self.camera_api.completed.connect(self.cameras_received)
         self.camera_api.busy_changed.connect(lambda busy: self._set_controls(True))
         self.runtime.bind_session(session)
         store = EventCoordinator(session, self)
+        store.event_saved.connect(self.event_history.receive_saved)
         store.can_change = lambda: not self.runtime.busy and not self.runtime.shutting_down
         store.storage_changed.connect(self._storage_changed)
         store.notice.connect(self.statusBar().showMessage)
@@ -312,6 +321,8 @@ class CCTVMainWindow(QMainWindow):
 
     def begin_shutdown(self):
         self.runtime.shutting_down = True
+        if self.event_history is not None:
+            self.event_history.stop()
         if self.camera_api is not None:
             self.camera_api.cancel()
         for dialog in self.findChildren(QDialog):
