@@ -26,7 +26,7 @@
 - 프레임별 상태와 현재 관측 중인 로컬·글로벌 ID 연결은 추적 프로그램 메모리에서 관리한다. 글로벌 대표 벡터는 DB에 보존하고, 공용 GlobalPersonManager가 API로 읽어 메모리 비교 후보를 구성한다.
 - Refresh 토큰 상태는 **백엔드 단일 프로세스의 메모리**에서 관리한다.
 - 이미지·영상은 파일 저장소에 저장하고, DB에는 저장소 기준 상대 경로만 기록한다.
-- 글로벌 매칭용 OSNet과 이벤트 분석용 자체 CNN은 서로 다른 역할이다. CNN 출력 항목은 아직 미정이다.
+- 글로벌 매칭용 OSNet과 이벤트 분석용 자체 CNN은 서로 다른 역할이다. 2026-11-20 CNN 1단계 단독 추론·2단계 결과 저장·3단계 PC 공용 Worker 연결은 [CNN 개발 계획](CNN_APPEARANCE_DEVELOPMENT_PLAN.md)을 따른다. 자동 및 실제 단일 웹캠 정상 흐름을 검증했다.
 - 기존 VLM은 자체 CNN으로 교체하고 Discord는 제거하는 방향이다. 이 문서는 그 변경을 구현하지 않는다.
 
 ## 2. 공통 자료형 및 DB 규칙
@@ -132,6 +132,7 @@
 | crop_path | 허용 | 저장소 AI_CCTV 기준 상대 경로 |
 | clip_path | 허용 | 위와 같음 |
 | trajectory_path | 허용 | 위와 같음 |
+| cnn_result | 허용 | JSON 객체, 등장 이벤트의 exp3 인상착의 결과. 초기 SQL NULL |
 
 ### 발생·NULL 조합
 
@@ -160,7 +161,15 @@
 - 폴더명 변경 후 모든 현재 경로를 한 PATCH/트랜잭션으로 반영한다. PATCH 생략은 유지, 명시 null은 경로 제거. PC는 관측별 한 요청과 최신 revision 합치기로 순서를 유지한다. 자동 갱신은 준비된 경로만 보내므로 옛 요청이 새 파일을 NULL로 지우지 않는다. folder rename 경합으로 생성이 거부되면 같은 불변 키/시각으로 미디어 없는 생성을 한 번 재확인한 뒤 현재 경로를 PATCH한다. NULL은 이용 불가이며 상세 실패 상태는 저장하지 않는다.
 - 목록은 occurred_at DESC, event_id DESC, 동일 순서 인덱스와 배타적 두 값 커서. 기본 50/최대 100. 복잡한 검색/통계/구독 없음.
 - 저장소 절대 경로는 백엔드 설정 파일로 유지한다. 이벤트 저장 전 설정 필수, 첫 이벤트 커밋 뒤 다른 경로 변경 제한(동일 경로 허용). 2단계는 DB 옆 ai_cctv.storage.json을 원자적으로 교체하고 설정/이벤트 쓰기를 잠금으로 조정한다. 기존 AI_CCTV 폴더·동일 볼륨·프로젝트 temp/output 제외를 검증한다. 설정 손상은 시작 실패, 이벤트가 있는 DB의 설정 유실은 다른 경로 설정을 거부한다. 3단계 GUI는 백엔드 설정을 복원/확인하고 확인된 경로만 Worker에 전달하며 촬영 중 변경을 차단한다. 설정 테이블은 추가하지 않는다.
-- 글로벌 매칭 상태·message·CNN·별도 미디어 테이블·파일 응답/Range는 이번 MVP 범위 밖이다.
+- 글로벌 매칭 상태·message·별도 미디어 테이블·파일 응답/Range는 기존 이벤트 MVP 범위 밖이다. CNN 결과 저장은 아래 후속 2단계로 추가했다.
+
+### CNN 결과 — 2026-11-20 후속 2단계
+
+- `cnn_result`는 SQLAlchemy JSON(none_as_null=True), SQLite JSON 문자열이며 미분석은 SQL NULL이다. DB CHECK는 SQL NULL 또는 등장 이벤트의 유효한 JSON 객체만 허용한다. 세부 속성은 API DTO에서 검증한다.
+- 결과는 `model_version="exp3"`와 8개 `attributes`다. gender/hat/색상/sleeve/lower_type/carrying은 원래 라벨, age는 소년/소녀/청년/장년을 사용한다. 소년은 Male, 소녀는 Female과 일치해야 한다. 상의 색상 1~11개, 하의 색상 1개, 소지품 0~5개이며 중복 라벨을 거부한다.
+- 등장 생성 요청에서는 cnn_result를 받지 않는다. 별도 인증 PATCH로 전체 결과를 교체하며 null/빈 요청/알 수 없는 필드/라벨은 거부한다. 같은 결과 재전송은 같은 결과, 다른 유효 결과는 마지막 커밋을 반영한다. 미디어·발생 시각·식별값은 바꾸지 않는다.
+- 목록/상세/생성/미디어 응답에 cnn_result를 포함한다. 사라짐·카메라 이벤트는 항상 NULL이며 사라짐은 related_event_id로 등장 결과를 참조한다.
+- 기존 DB는 백엔드 시작의 단일 인스턴스 잠금 안에서 컬럼 유무를 확인한다. 컬럼이 없는 events가 있으면 SQLite backup API로 DB 옆 `.before-cnn-result-시각-식별자.bak` 백업을 생성한 뒤 ALTER TABLE ADD COLUMN을 수행한다. 기존 행은 SQL NULL이며 데이터/기존 제약을 보존한다. 새 DB는 create_all로 15컬럼을 생성하며 이미 추가된 DB는 다시 마이그레이션하지 않는다. 백업/ALTER 실패 시 시작을 중단한다. 운영 DB 직접 실행은 이번 검증에서 하지 않았다.
 
 ## 7. 글로벌 인물: `global_person_manage` 및 매칭 정책
 

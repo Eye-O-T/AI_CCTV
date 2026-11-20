@@ -737,7 +737,7 @@ EventCreate 요청:
 - 인물 중복 키는 (server_run_id, camera_id, camera_execution_id, tracking_generation, local_person_id, event_type), 카메라 중복 키는 (server_run_id, camera_id, camera_execution_id, event_type)다.
 - 신규 커밋 201, 같은 키·같은 불변 내용 재전송 200과 같은 event_id/현재 DTO. 불변 내용이 다르면 409 EVENT_REQUEST_CONFLICT. 생성 재요청의 미디어 경로는 반영하지 않고 현재 상태를 반환하며 경로 변경은 PATCH만 사용한다. 추가 request_id나 테이블은 없다.
 - 응답 유실은 같은 키로 재확인한다. PC 생성 요청의 옛 미디어 경로가 폴더 rename 경합으로 거부되면 같은 불변 식별값/시각으로 미디어 없는 생성 재확인을 한 번만 하고 최신 경로를 PATCH한다. 정상 생성에는 준비된 경로를 함께 보낸다. 재로그인/새 서버 실행 뒤 과거 미확정 요청 자동 재전송은 PC에서 금지한다.
-- EventResponse: 위 요청 필드 전체(생략 필드도 null로 포함) + event_id + server_run_id. DB에 저장한 상대 경로만 응답하고 서버 저장소 절대 경로는 이벤트 응답에 넣지 않는다.
+- EventResponse: 위 요청 필드 전체(생략 필드도 null로 포함) + event_id + server_run_id + cnn_result. cnn_result는 초기 null이며 아래 후속 CNN API로 갱신한다. 생성 요청에서는 cnn_result를 거부한다. DB에 저장한 상대 경로만 응답하고 서버 저장소 절대 경로는 이벤트 응답에 넣지 않는다.
 
 ### 2. 미디어 — PATCH /api/v1/events/{event_id}/media
 
@@ -766,6 +766,40 @@ EventCreate 요청:
 - 첫 이벤트 커밋 이후 다른 기준 경로는 409 STORAGE_ROOT_LOCKED. 동일 정규 경로는 허용한다. 제한은 이벤트가 카메라 종류여도 적용되며 재실행 뒤에도 유지한다.
 - 설정 변경과 이벤트 생성/미디어 갱신은 단일 프로세스의 공용 잠금과 SQLite BEGIN IMMEDIATE 순서로 조정한다. 첫 이벤트 커밋 전 검증 실패/롤백은 경로를 잠그지 않는다. 설정 교체 실패는 이전 파일과 메모리 경로를 유지한다. 3단계 GUI는 로그인/설정 화면에서 설정을 조회하고, PUT 확인 후 설정 창을 닫으며 확인된 서버 경로를 Worker에 전달한다. 미설정/설정 요청 중 START 및 촬영/정리 중 설정 변경을 차단한다. 이벤트 이력이 있으면 위치 선택도 비활성화한다.
 
+### 6. CNN 결과 — PATCH /api/v1/events/{event_id}/cnn-result
+
+2026-11-20 CNN 2단계 구현. 기존 관리자 Access 인증과 공통 오류를 사용한다. API 요청에서 모델 추론은 실행하지 않는다. 후속 3단계에서 PC 공용 CNNWorker/자동 제출을 연결했고 실제 단일 웹캠 정상 흐름을 검증했다. 상세 검증 범위는 [CNN 개발 계획](CNN_APPEARANCE_DEVELOPMENT_PLAN.md)을 따른다.
+
+요청 예시(실제 추론 결과가 아닌 계약 예시):
+
+```json
+{
+  "cnn_result": {
+    "model_version": "exp3",
+    "attributes": {
+      "gender": "Male",
+      "age": "청년",
+      "hat": "No Hat",
+      "upper_color": ["Black", "White"],
+      "lower_color": ["Blue"],
+      "sleeve": "Short Sleeve",
+      "lower_type": "Long Pants",
+      "carrying": []
+    }
+  }
+}
+```
+
+- cnn_result와 8개 속성 전체가 필수다. 빈 객체/null/추가 필드/지원하지 않는 라벨은 422다. model_version은 exp3만 받는다.
+- gender: Male/Female. age: 소년/소녀/청년/장년. 소년은 Male, 소녀는 Female과 일치해야 한다. 원래 5개 나이 클래스는 PC 후처리 후 보내며 API에서 재변환하지 않는다.
+- hat: No Hat/Hat. sleeve: Long Sleeve/Short Sleeve/No Sleeve. lower_type: Long Pants/Short Pants/Skirt.
+- upper_color 1~11개, lower_color 1개: Black/Blue/Brown/Green/Grey/Orange/Pink/Purple/Red/White/Yellow.
+- carrying 0~5개: Backpack/MessengerBag/PlasticBag/Luggage/Other. 빈 배열은 소지품 검출 없음이다. 모든 배열은 중복 라벨을 거부한다.
+- 등장만 갱신 가능하며 다른 이벤트는 409 EVENT_CNN_RESULT_NOT_ALLOWED, 부재는 404 EVENT_NOT_FOUND다. 과거 서버 실행의 등장도 기존 Access로 갱신 가능하다.
+- 결과 객체 전체 교체다. 같은 요청 재전송은 동일 결과를 반환하고 다른 유효 결과는 마지막 커밋이 반영된다. 결과 삭제(null)는 제공하지 않는다. 미디어 PATCH/생성 재전송은 CNN 결과를 유지한다.
+- 성공 200 + 현재 EventResponse, Cache-Control: no-store. 식별값/발생 시각/미디어/행 개수는 바꾸지 않는다. 기존 목록·상세 등 EventResponse에 cnn_result가 포함된다.
+- 저장소 파일을 재검사하지 않으므로 미디어 경로/저장소가 일시적으로 없어도 결과 저장은 가능하다. NULL은 대기/미분석/실패를 구분하지 않는다.
+
 ### 오류 계약
 
 | HTTP | 코드 | 조건 |
@@ -775,6 +809,7 @@ EventCreate 요청:
 | 409 | EVENT_REQUEST_CONFLICT | 같은 키의 다른 불변 내용 |
 | 409 | EVENT_RELATION_CONFLICT | 관련 등장 종류/관측/시각 불일치 |
 | 409 | EVENT_MEDIA_NOT_ALLOWED | 등장 이외 미디어 갱신 |
+| 409 | EVENT_CNN_RESULT_NOT_ALLOWED | 등장 이외 CNN 결과 갱신 |
 | 409 | EVENT_RUN_CONFLICT | Service의 현재 서버 실행이 없거나 running이 아님 |
 | 409 | STORAGE_ROOT_NOT_CONFIGURED / STORAGE_ROOT_LOCKED | 설정 없음/변경 제한 |
 | 422 | VALIDATION_ERROR | 종류별 입력/시각/UUID/경로/커서/범위 오류 |

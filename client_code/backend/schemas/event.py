@@ -5,6 +5,8 @@ from typing import Annotated, Literal
 from pydantic import (AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field,
                       UUID4, field_serializer, field_validator, model_validator)
 
+from .cnn_result import CNNResult
+
 
 def _datetime_input(value):
     if isinstance(value, str):
@@ -105,6 +107,13 @@ class EventResponse(EventCreate):
 
     event_id: PositiveId
     server_run_id: PositiveId
+    cnn_result: CNNResult | None = None
+
+    @model_validator(mode='after')
+    def cnn_only_on_appearance(self):
+        if self.event_type != 'person_appeared' and self.cnn_result is not None:
+            raise ValueError('CNN 결과는 등장 이벤트에만 저장합니다.')
+        return self
 
 
 class EventListQuery(BaseModel):

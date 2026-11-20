@@ -25,6 +25,10 @@ class EventRepository:
             setattr(row, field, value)
         db.flush()
 
+    def update_cnn_result(self, db, row, result):
+        row.cnn_result = result
+        db.flush()
+
     def list(self, db, query):
         statement = select(Event)
         if query.before_occurred_at is not None:

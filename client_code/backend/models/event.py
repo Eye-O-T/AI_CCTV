@@ -1,7 +1,7 @@
 """이벤트 이력. 파일 작성·이동과 글로벌 매칭은 PC 작업의 책임이다."""
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Text, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, JSON, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base, UTCDateTime
@@ -55,3 +55,7 @@ class Event(Base):
     crop_path: Mapped[str | None] = mapped_column(Text)
     clip_path: Mapped[str | None] = mapped_column(Text)
     trajectory_path: Mapped[str | None] = mapped_column(Text)
+    cnn_result: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), CheckConstraint(
+        "cnn_result IS NULL OR (event_type = 'person_appeared' "
+        "AND json_valid(cnn_result) AND json_type(cnn_result) = 'object')",
+        name='ck_event_cnn_result'))

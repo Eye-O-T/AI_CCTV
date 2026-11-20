@@ -19,6 +19,7 @@ from cameras.runtime_manager import CameraRuntimeManager, CameraRun
 from reid.tasks import Observation
 from storage.clip_manager import ClipManager, PersonMediaUpdate
 from workers.video_worker import VideoWorker
+from workers.cnn_worker import CNNWorker
 
 
 class ManualStore:
@@ -324,7 +325,13 @@ class PersonHTTPTests(unittest.TestCase):
             created = client.post('/api/v1/global-persons', json={'request_id': str(uuid4()),
                 'feature_vector': [1.] + [0.] * 511, 'observed_at': datetime.now(timezone.utc).isoformat()})
             global_id = created.json()['global_person_id']
-            co = EventCoordinator(session)
+            # 이 회귀는 미디어/이벤트 순서가 목적이다. 실제 CNN은 test_cnn_pipeline에서 검증한다.
+            cnn_result = {'model_version': 'exp3', 'attributes': {
+                'gender': 'Male', 'age': '청년', 'hat': 'No Hat',
+                'upper_color': ['Black'], 'lower_color': ['Blue'],
+                'sleeve': 'Short Sleeve', 'lower_type': 'Long Pants', 'carrying': []}}
+            co = EventCoordinator(session, cnn_factory=lambda: CNNWorker(
+                lambda: SimpleNamespace(analyze=lambda _: cnn_result)))
             runtime = CameraRuntimeManager()
             runtime.bind_session(session)
             runtime.attach_event_store(co)
@@ -428,6 +435,9 @@ class PersonHTTPTests(unittest.TestCase):
                 release.set()
                 if manager:
                     manager.finish_all()
+                co._abort_cnn()
+                if co.cnn_worker is not None:
+                    co.cnn_worker.join(5)
                 co.store.abort()
                 co.store.join(5)
                 co.timer.stop()

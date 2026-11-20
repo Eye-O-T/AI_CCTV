@@ -455,6 +455,17 @@ class EventHTTPTests(unittest.TestCase):
                     self.assertEqual(client.get(target).json(), patched.json())
                     self.assertEqual(client.get(EVENTS, params={'limit': 1}).json()['items'], [patched.json()])
                     self.assertEqual(client.get(STORAGE).json(), {'storage_root': str(root), 'locked': True})
+                    cnn_result = {'model_version': 'exp3', 'attributes': {
+                        'gender': 'Female', 'age': '소녀', 'hat': 'Hat',
+                        'upper_color': ['Blue'], 'lower_color': ['Black'],
+                        'sleeve': 'Long Sleeve', 'lower_type': 'Long Pants', 'carrying': []}}
+                    analyzed = client.patch(target + '/cnn-result', json={'cnn_result': cnn_result})
+                    self.assertEqual(analyzed.status_code, 200, analyzed.text)
+                    self.assertEqual(analyzed.json()['cnn_result'], cnn_result)
+                    self.assertEqual(analyzed.json()['clip_path'], patched.json()['clip_path'])
+                    self.assertEqual(client.get(target).json(), analyzed.json())
+                    self.assertEqual(client.get(EVENTS).json()['items'], [analyzed.json()])
+                    self.assertEqual(client.post(EVENTS, json=body).json(), analyzed.json())
             finally:
                 server.should_exit = True
                 thread.join(timeout=10)

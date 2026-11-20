@@ -1,5 +1,11 @@
 # PC CCTV 백엔드
 
+## CNN 결과 저장 2단계 (2026-11-20)
+
+`events.cnn_result` nullable JSON 컬럼, 인증된 `PATCH /api/v1/events/{event_id}/cnn-result`, 기존 EventResponse의 결과 조회를 추가했다. 요청은 `{"cnn_result":{"model_version":"exp3","attributes":{...}}}`이며 전체 8개 속성과 후처리 나이 범주를 검증한다. 등장 이벤트만 갱신하고 미디어·식별값·시각은 유지한다. 계약은 [API 명세 CNN 절](../docs/API_SPEC.md#6-cnn-결과--patch-apiv1eventsevent_idcnn-result), 진행/검증은 [CNN 개발 계획](../docs/CNN_APPEARANCE_DEVELOPMENT_PLAN.md)을 읽는다. 백엔드는 AI 모델을 import하지 않는다. 후속 3단계에서 PC 공용 CNNWorker→기존 EventStore의 자동 저장을 연결했고 실제 단일 웹캠 정상 흐름까지 검증했다.
+
+다음 백엔드 시작 시 기존 events에 컬럼이 없으면 **DB 옆 자동 백업 생성 후 컬럼을 추가**한다. `migrations.py`가 단일 인스턴스 잠금 안에서 실행되며 SQLite backup API로 WAL의 커밋된 내용까지 백업한다. 백업명은 `ai_cctv.db.before-cnn-result-UTC시각-식별자.bak` 형식이다. 백업 실패 시 변경하지 않고 시작을 중단하며 ALTER 실패 시 rollback한다. 기존 행은 SQL NULL, 이미 컬럼이 있으면 추가 작업/백업은 없다. 새 DB는 create_all로 생성한다. 이 변경은 cnn_result에 한정된 마이그레이션이며 임의의 과거 스키마를 자동 복구하지 않는다. 검증은 임시 DB에서 수행했고 운영 DB는 직접 변경하지 않았다.
+
 현재 SQLite 기반 인증 API 5개, 카메라 관리 API, 글로벌 인물 조회·등록·마지막 관측 갱신 API와 `GET /health`가 구현되어 있다. `users`, `server_runs`, `cameras`, `global_person_manage`, `events` 모델이 등록되어 서버 시작 시 없는 테이블을 생성한다. PC의 OSNet·Manager/API·카메라 큐·인증 종료·글로벌 ID 영상 표시를 연결했다. ReID 5단계 단일 인물 두 카메라 연결은 사용자 확인했으며 다른 사람/동시 인물·지속 성능은 미검증이다. 이벤트는 2단계 모델·DTO·Repository·Service·인증된 이벤트 API 4개·저장소 설정 API 2개까지 구현했으며 PC 공용 큐/카메라 연결은 3단계에서 구현했으며 인물/미디어 자동 연결도 4단계에서 구현했다. 5단계에서 합성·단일 웹캠 정상 흐름도 확인했다. 두 물리 카메라/RTSP·장시간 범위는 미검증이다. 상세 검증은 [클라이언트 README](../README.md)를 참고한다.
 
 이벤트 코드·저장 계약을 수정하거나 다음 단계를 시작할 때 [이벤트 MVP 개발 계획](../docs/EVENT_MVP_DEVELOPMENT_PLAN.md), [DB 스키마](../docs/BACKEND_SCHEMA.md)의 events 절, [API 명세](../docs/API_SPEC.md)의 이벤트 절을 읽는다. 이벤트 Router와 Service를 앱 수명에 연결했으며 Swagger/Postman에서 기존 Access로 사용할 수 있다. 다음 제품 서버 실행 시 없는 events만 추가되며 기존 네 테이블은 초기화하지 않는다.
@@ -76,7 +82,7 @@ backend/
 - 단일 프로세스·단일 인스턴스로 실행한다. 여러 worker를 사용하지 않는다. 동일 DB 중복 실행은 파일 잠금으로 거부한다.
 - 기존 서버가 8000 포트를 사용한다면 기존 서버의 터미널에서 정상 종료 후 새 코드를 실행한다. 다른 프로세스를 임의로 종료하지 않는다.
 - DB는 실행 위치에 관계없이 `client_code/backend/data/ai_cctv.db`에 생성된다. 계정과 실행 이력을 보존하며 이 디렉터리는 Git에서 제외한다. DB 파일 삭제는 관리자 계정 삭제이므로 테스트 초기화 목적으로 무작정 삭제하지 않는다.
-- `create_all`은 없는 테이블만 생성한다. 기존 테이블 구조를 자동 마이그레이션하지 않는다.
+- `create_all`은 없는 테이블만 생성한다. 기존 테이블 구조 변경은 위 CNN 결과 컬럼 전용 마이그레이션만 제공한다.
 - 서버 시작 시 실행 기록을 만들고, 이전 `running` 기록은 중복 실행이 아닌 것을 확인한 뒤 `interrupted`로 변경한다. 알 수 없는 강제 종료 시각은 채우지 않는다. 정상 종료는 `stopped`와 종료 시각을 기록한다.
 - JWT 서명 키는 시작마다 메모리에서 무작위 생성한다. 서버 재시작·개발 리로드 시 기존 토큰이 모두 무효화된다.
 - 최초 가입 전 서버를 로컬 주소에 바인딩하여 사용한다. 외부 접근·HTTPS 배포는 이번 구현 범위가 아니다.

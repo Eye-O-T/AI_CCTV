@@ -37,7 +37,9 @@ def main():
     parser.add_argument('--label', default=datetime.now().strftime('%Y%m%d_%H%M%S'))
     parser.add_argument('--timeout', type=int, default=240)
     parser.add_argument('--auto-finish-after-disappearance', action='store_true',
-                        help='webcam에서 자연 사라짐 저장 확인 후 진단 도구가 STOP/로그아웃한다.')
+                        help='webcam에서 자동 START하고 자연 사라짐 저장 후 STOP/로그아웃한다.')
+    parser.add_argument('--require-cnn', action='store_true',
+                        help='등장별 CNN 결과 저장과 API/DB 일치까지 검증한다.')
     args = parser.parse_args()
     if args.index < 0 or not 30 <= args.timeout <= 600 or not args.label or any(
             c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in args.label):
@@ -230,6 +232,8 @@ def main():
         window.camera_saved(camera_id)
         pump_until(lambda: camera_id in window.camera_rows and window.camera_api.pending is None)
         window.camera_list.setCurrentRow(1)
+        if args.mode == 'webcam' and args.auto_finish_after_disappearance:
+            window.start_video()
         password = None
         write_status('ready_no_camera_opened')
         print('READY', str(base / 'status.json'), flush=True)
@@ -262,7 +266,13 @@ def main():
                     natural_saved = any(update.finish_reason == 'natural' and
                         (update.camera_id, update.execution_id.replace('-', ''), update.tracking_generation,
                          update.local_person_id) in coordinator._closed_persons for update in snapshots.values())
-                    if natural_saved and not coordinator.failures and not coordinator._pending:
+                    cnn_saved = True
+                    if args.require_cnn:
+                        response = observer.get(url + '/api/v1/events', timeout=5)
+                        response.raise_for_status()
+                        appearances = [row for row in response.json()['items'] if row['event_type'] == 'person_appeared']
+                        cnn_saved = bool(appearances) and all(row['cnn_result'] is not None for row in appearances)
+                    if natural_saved and cnn_saved and not coordinator.failures and not coordinator._pending:
                         guide.setText('사라짐 이벤트 저장 확인 완료. 이제 STOP → 로그아웃을 눌러 주세요.')
                         guide.setStyleSheet('font-size: 20px; padding: 12px; color: #4ade80;')
                         if args.auto_finish_after_disappearance:
@@ -310,6 +320,9 @@ def main():
                 backend.process.kill()  # 이 진단이 만든 백엔드만 종료한다.
                 backend.process.waitForFinished(5000)
         if coordinator is not None:
+            coordinator._abort_cnn()
+            if coordinator.cnn_worker is not None:
+                coordinator.cnn_worker.join(10)
             coordinator.store.abort()
             coordinator.store.join(5)
         for worker in workers:
@@ -341,6 +354,13 @@ def main():
     checks['product_token_revoked'] = report.get('product_token_revoked', False)
     checks['paths_and_timestamps'] = True
     appearances = {r['event_id']: r for r in rows if r['event_type'] == 'person_appeared'}
+    if args.require_cnn:
+        api_by_id = {row['event_id']: row for row in api_rows}
+        checks['cnn_results'] = bool(appearances) and all(
+            row['cnn_result'] is not None and json.loads(row['cnn_result']) == api_by_id[event_id]['cnn_result']
+            for event_id, row in appearances.items())
+        checks['cnn_worker_stopped'] = coordinator is not None and (
+            coordinator.cnn_worker is not None and not coordinator.cnn_worker.is_alive())
     keys = set()
     for row in rows:
         key = tuple(row[f] for f in ('server_run_id', 'camera_id', 'camera_execution_id', 'tracking_generation', 'local_person_id', 'event_type'))

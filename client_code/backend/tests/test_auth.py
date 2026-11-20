@@ -268,7 +268,7 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(set(paths), {"/health", "/api/v1/cameras", "/api/v1/cameras/{camera_id}",
                                     "/api/v1/global-persons", "/api/v1/global-persons/{global_person_id}/last-seen",
                                     "/api/v1/events", "/api/v1/events/{event_id}",
-                                    "/api/v1/events/{event_id}/media", "/api/v1/settings/storage",
+                                    "/api/v1/events/{event_id}/media", "/api/v1/events/{event_id}/cnn-result", "/api/v1/settings/storage",
                                     *(PREFIX + "/" + name for name in ("signup-status", "signup", "login", "logout", "refresh"))})
         self.assertEqual(DEFAULT_DB_PATH, Path(__file__).resolve().parents[1] / "data" / "ai_cctv.db")
 

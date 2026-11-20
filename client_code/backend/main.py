@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .database import Base, DEFAULT_DB_PATH, create_database, single_instance
+from .migrations import migrate_event_cnn_result
 from .errors import APIError
 from .routers.auth import router
 from .routers.cameras import router as camera_router
@@ -35,6 +36,7 @@ def create_app(db_path: Path | None = None, storage_config_path: Path | None = N
             global_persons = None
             runs = ServerRunService(factory)
             try:
+                migrate_event_cnn_result(path)
                 Base.metadata.create_all(engine)
                 storage = StorageService(factory, config_path)
                 run_id = runs.start()
@@ -74,7 +76,7 @@ def create_app(db_path: Path | None = None, storage_config_path: Path | None = N
                    "event_id", "event_type", "server_run_id", "camera_execution_id",
                    "tracking_generation", "local_person_id", "related_event_id", "occurred_at",
                    "crop_path", "clip_path", "trajectory_path", "storage_root",
-                   "limit", "before_occurred_at", "before_event_id"}
+                   "limit", "before_occurred_at", "before_event_id", "cnn_result"}
         field = next((item for item in location if isinstance(item, str) and item in allowed), None)
         error = APIError(422, "VALIDATION_ERROR", "요청 입력을 확인해 주세요.", field)
         return JSONResponse(status_code=422, content=error.body())

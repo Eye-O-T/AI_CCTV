@@ -81,6 +81,21 @@ class EventService:
                 db.rollback()
                 raise
 
+    def update_cnn_result(self, event_id, body):
+        with self.session_factory() as db:
+            try:
+                db.execute(text('BEGIN IMMEDIATE'))
+                row = self._get(db, event_id)
+                if row.event_type != 'person_appeared':
+                    raise APIError(409, 'EVENT_CNN_RESULT_NOT_ALLOWED', '등장 이벤트의 CNN 결과만 갱신할 수 있습니다.')
+                self.repository.update_cnn_result(db, row, body.cnn_result.model_dump())
+                response = EventResponse.model_validate(row)
+                db.commit()
+                return response
+            except Exception:
+                db.rollback()
+                raise
+
     def get(self, event_id):
         with self.session_factory() as db:
             return EventResponse.model_validate(self._get(db, event_id))

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from ..dependencies import get_event_service, require_user_id
 from ..schemas.auth import ErrorResponse
 from ..schemas.event import EventCreate, EventListParameters, EventListResponse, EventMediaUpdate, EventResponse
+from ..schemas.cnn_result import EventCNNResultUpdate
 from ..services.event_service import EventService
 
 
@@ -34,6 +35,12 @@ def update_media(event_id: EventId, body: EventMediaUpdate, service: Service, re
 def list_events(query: Annotated[EventListParameters, Query()], service: Service, response: Response):
     response.headers['Cache-Control'] = 'no-store'
     return service.list(query)
+
+
+@router.patch('/{event_id}/cnn-result', response_model=EventResponse)
+def update_cnn_result(event_id: EventId, body: EventCNNResultUpdate, service: Service, response: Response):
+    response.headers['Cache-Control'] = 'no-store'
+    return service.update_cnn_result(event_id, body)
 
 
 @router.get('/{event_id}', response_model=EventResponse)

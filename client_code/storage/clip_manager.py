@@ -32,6 +32,7 @@ class PersonMediaUpdate:
     last_seen_utc: datetime | None = None
     finish_reason: str | None = None
     revision: int = 0
+    cnn_source_path: Path | None = None
 
 
 class ClipManager:
@@ -168,6 +169,7 @@ class ClipManager:
             "jump_skip_count": 0,
             "last_frame": frame.copy(),
             "crop_saved": False,
+            'cnn_source_path': None,
             "crop_task_id": None,
             "trajectory_path": None,
             "finished_at": None,
@@ -394,6 +396,7 @@ class ClipManager:
         destination = folder / 'crop.jpg'
         os.rename(pending, destination)
         state['crop_saved'] = True
+        state['cnn_source_path'] = Path(crop_path).resolve()
         self._notify(state)
         return True
 
@@ -501,6 +504,7 @@ class ClipManager:
                 state['crop_task_id'],
                 state['global_person_id'], state['move_failed'],
                 state['first_seen_utc'], state['last_seen_utc'], state['finish_reason'], state['revision'],
+                state['cnn_source_path'],
             ))
 
     def _get_bbox_ground_anchor(self, bbox):

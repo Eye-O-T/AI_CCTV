@@ -8,6 +8,7 @@ import time
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
 from events.store import EventStore
+from workers.cnn_worker import CNNWorker
 
 
 MEDIA = ('crop_path', 'clip_path', 'trajectory_path')
@@ -30,6 +31,9 @@ class PersonEvent:
     create_without_media: bool = False
     failed_media_revision: int = -1
     disappeared: bool = False
+    cnn_source_path: Path | None = None
+    cnn_attempted: bool = False
+    server_run_id: int | None = None
 
 
 class EventCoordinator(QObject):
@@ -40,7 +44,7 @@ class EventCoordinator(QObject):
     drained = pyqtSignal(str)
     event_saved = pyqtSignal(object)
 
-    def __init__(self, session, parent=None, store_factory=EventStore):
+    def __init__(self, session, parent=None, store_factory=EventStore, cnn_factory=CNNWorker):
         super().__init__(parent)
         self.session = session
         self.root = ''
@@ -54,6 +58,11 @@ class EventCoordinator(QObject):
         self._pending = {}
         self._persons = {}
         self._person_requests = {}
+        self._cnn_factory = cnn_factory
+        self.cnn_worker = None
+        self._cnn_jobs = {}
+        self._cnn_requests = {}
+        self._shutdown_expired = False
         self._active_executions = set()
         self._closed_persons = OrderedDict()
         self._deadline = float('inf')
@@ -77,7 +86,14 @@ class EventCoordinator(QObject):
             self.store.set_access_token(self.session.access_token)
 
     def _signed_out(self, *_):
+        self._abort_cnn()
+        self._cnn_jobs.clear()
+        self._cnn_requests.clear()
         self.store.abort()
+
+    def _abort_cnn(self, *_):
+        if self.cnn_worker is not None:
+            self.cnn_worker.abort()
 
     def refresh_storage(self):
         if self.closing or self.settings_pending or not self.can_change():
@@ -149,6 +165,9 @@ class EventCoordinator(QObject):
                                 update.revision, media)
             self._persons[key] = state
         state.revision, state.media, state.last_seen = update.revision, media, update.last_seen_utc
+        source = getattr(update, 'cnn_source_path', None)
+        if source is not None and state.cnn_source_path is None:
+            state.cnn_source_path = source
         state.finished = update.finished_at is not None
         state.natural = state.finished and update.finish_reason == 'natural'
         self._pump_person(key)
@@ -173,6 +192,7 @@ class EventCoordinator(QObject):
 
     def _pump_person(self, key):
         state = self._persons[key]
+        self._try_cnn(state)
         if state.inflight is not None:
             return
         if state.failed:
@@ -202,6 +222,64 @@ class EventCoordinator(QObject):
         else:
             state.inflight = request_id
             self._person_requests[request_id] = (key, operation, state.revision)
+
+    def _try_cnn(self, state):
+        if (state.cnn_attempted or state.failed or state.event_id is None
+                or state.cnn_source_path is None or self._shutdown_expired):
+            return
+        state.cnn_attempted = True
+        # HTTP가 느려도 분석/저장 대기 상태가 무한히 늘어나지 않게 한다.
+        if len(self._cnn_jobs) >= 64:
+            self._failed('CNN 대기 작업이 가득 차 일부 인상착의 분석을 제외했습니다.')
+            return
+        if self.cnn_worker is None:
+            self.cnn_worker = self._cnn_factory()
+            self.destroyed.connect(self.cnn_worker.abort)
+            self.cnn_worker.start()
+        if not self.cnn_worker.submit(state.event_id, state.cnn_source_path):
+            self._failed('CNN 작업을 접수하지 못했습니다. 모델 또는 분석 큐를 확인하세요.')
+            return
+        self._cnn_jobs[state.event_id] = dict(state.identity, event_id=state.event_id,
+                                             server_run_id=state.server_run_id,
+                                             occurred_at=state.first_seen.isoformat())
+
+    def _poll_cnn(self):
+        if self.cnn_worker is None:
+            return
+        for result in self.cnn_worker.take_results():
+            expected = self._cnn_jobs.get(result['event_id'])
+            if expected is None or self._shutdown_expired:
+                continue
+            if result['error']:
+                del self._cnn_jobs[result['event_id']]
+                self._failed('일부 인상착의 CNN 분석에 실패했습니다. 등장 이벤트는 유지됩니다.')
+                continue
+            body = {'cnn_result': result['result']}
+            request_id = self._submit('PATCH', f"/api/v1/events/{result['event_id']}/cnn-result",
+                                      body, 'cnn_result', expected['camera_id'])
+            if request_id is None:
+                del self._cnn_jobs[result['event_id']]
+            else:
+                self._cnn_requests[request_id] = result['event_id']
+
+    def _cnn_result(self, result, body):
+        event_id = self._cnn_requests.pop(result['request_id'])
+        expected = self._cnn_jobs.pop(event_id, None)
+        payload, error = result['payload'], result['error']
+        try:
+            valid = (expected is not None and isinstance(payload, dict)
+                     and type(payload.get('event_id')) is int
+                     and payload['event_type'] == 'person_appeared'
+                     and all(payload[name] == value for name, value in expected.items()
+                             if name not in ('camera_execution_id', 'occurred_at'))
+                     and payload['camera_execution_id'].replace('-', '') == expected['camera_execution_id'].replace('-', '')
+                     and datetime.fromisoformat(payload['occurred_at']) == datetime.fromisoformat(expected['occurred_at'])
+                     and payload['cnn_result'] == body['cnn_result'])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            valid = False
+        if error or not valid:
+            self._failed('일부 CNN 결과 저장을 확인하지 못했습니다. 이벤트 이력을 확인하세요.')
+        # CNN 결과 PATCH는 새 등장/타임라인 카드가 아니다.
 
     @staticmethod
     def _valid_person_response(payload, state, operation, body):
@@ -246,6 +324,7 @@ class EventCoordinator(QObject):
             self._failed('일부 인물 이벤트 또는 미디어 경로의 저장을 확인하지 못했습니다.')
         elif operation == 'appear':
             state.event_id = payload['event_id']
+            state.server_run_id = payload['server_run_id']
             state.saved_media = {name: payload.get(name) for name in MEDIA}
         elif operation == 'media':
             state.saved_media = {name: payload[name] for name in MEDIA}
@@ -262,11 +341,15 @@ class EventCoordinator(QObject):
     def poll(self):
         if self.finished:
             return
+        self._poll_cnn()
         for result in self.store.take_results():
             pending = self._pending.pop(result['request_id'], None)
             if pending is None:
                 continue
             kind, body = pending
+            if result['request_id'] in self._cnn_requests:
+                self._cnn_result(result, body)
+                continue
             if result['request_id'] in self._person_requests:
                 self._person_result(result, body)
                 self.changed.emit()
@@ -302,11 +385,21 @@ class EventCoordinator(QObject):
             if kind == 'storage_put':
                 self.settings_finished.emit(not error, '서버 저장소 설정을 확인하지 못했습니다.' if error else '')
             self.changed.emit()
-        if self.closing and not self._pending:
+        cnn_alive = self.cnn_worker is not None and self.cnn_worker.is_alive()
+        if self.closing and not self._pending and self.cnn_worker is not None:
+            self.cnn_worker.finish()
+        if self.closing and not self._pending and not cnn_alive and not self._cnn_jobs:
             self.store.finish(max(0, self._deadline - time.monotonic()))
-        if self.closing and (not self.store.is_alive() or time.monotonic() >= self._deadline):
-            if self._pending:
-                self._failed('종료 제한 시간 안에 일부 이벤트 저장을 확인하지 못했습니다. 저장 결과를 확인하세요.')
+        if self.closing and time.monotonic() >= self._deadline and not self._shutdown_expired:
+            self._shutdown_expired = True
+            if self._pending or self._cnn_jobs or cnn_alive:
+                self._failed('종료 제한 시간 안에 일부 이벤트/CNN 저장을 확인하지 못했습니다. 실행 중인 CNN 정리를 기다립니다.')
+            self._abort_cnn()
+            self.store.abort()
+            self._pending.clear()
+            self._cnn_requests.clear()
+            self._cnn_jobs.clear()
+        if self.closing and not cnn_alive and (not self.store.is_alive() or self._shutdown_expired):
             self.store.abort()
             self._pending.clear()
             self._person_requests.clear()
@@ -314,7 +407,7 @@ class EventCoordinator(QObject):
             self._active_executions.clear()
             self.finished = True
             self.timer.stop()
-            warning = '일부 이벤트 저장을 확인하지 못했습니다. 서버의 이벤트 이력을 확인하세요.' if self.failures else ''
+            warning = '일부 이벤트 또는 CNN 결과 저장을 확인하지 못했습니다. 서버의 이벤트 이력을 확인하세요.' if self.failures else ''
             self.drained.emit(warning)
 
     def begin_shutdown(self, timeout=8):
