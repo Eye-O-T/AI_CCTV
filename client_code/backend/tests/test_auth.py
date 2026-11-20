@@ -269,6 +269,7 @@ class AuthTests(unittest.TestCase):
                                     "/api/v1/global-persons", "/api/v1/global-persons/{global_person_id}/last-seen",
                                     "/api/v1/events", "/api/v1/events/{event_id}", "/api/v1/mobile/events",
                                     "/api/v1/mobile/events/{event_id}/crop",
+                                    "/api/v1/mobile/events/{event_id}",
                                     "/api/v1/events/{event_id}/media", "/api/v1/events/{event_id}/cnn-result", "/api/v1/settings/storage",
                                     *(PREFIX + "/" + name for name in ("signup-status", "signup", "login", "logout", "refresh"))})
         self.assertEqual(DEFAULT_DB_PATH, Path(__file__).resolve().parents[1] / "data" / "ai_cctv.db")

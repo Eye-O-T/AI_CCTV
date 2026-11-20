@@ -30,7 +30,7 @@ def main():
     parser.add_argument("--db-path", type=Path, default=None)
     parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
-    server = DesktopServer(uvicorn.Config(create_app(args.db_path), host="127.0.0.1", port=args.port, access_log=False))
+    server = DesktopServer(uvicorn.Config(create_app(args.db_path), host="0.0.0.0", port=args.port, access_log=False))
 
     def watch_parent():
         # 명시적 종료 요청 또는 부모의 파이프 종료 모두 정리한다.

@@ -10,6 +10,15 @@ class MobileEventRepository:
     def get(self, db, event_id):
         return db.get(Event, event_id)
 
+    def get_detail(self, db, event_id):
+        source = aliased(Event)
+        source_id = case((Event.event_type == 'person_disappeared', Event.related_event_id),
+                         else_=Event.event_id)
+        return db.execute(select(Event, Camera.name, source)
+                          .join(Camera, Camera.camera_id == Event.camera_id)
+                          .outerjoin(source, source.event_id == source_id)
+                          .where(Event.event_id == event_id)).first()
+
     def list(self, db, query, start, end):
         source = aliased(Event)
         source_id = case((Event.event_type == 'person_disappeared', Event.related_event_id),

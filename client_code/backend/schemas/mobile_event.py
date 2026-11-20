@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, BeforeValidator, Field, field_serializer, field_validator
 
 from .event import EventListParameters, EventTime, EventType, PositiveId, _query_integer
+from .cnn_result import CNNResult
 
 
 KST = timezone(timedelta(hours=9))
@@ -60,3 +61,20 @@ class MobileEventListResponse(BaseModel):
     date: CalendarDate
     items: list[MobileEventCard]
     next_cursor: MobileEventCursor | None
+
+
+class MobileEventDetail(BaseModel):
+    event_id: PositiveId
+    event_type: Literal['person_appeared', 'person_disappeared']
+    occurred_at: EventTime
+    global_person_id: PositiveId
+    camera_id: PositiveId
+    camera_name: str
+    cnn_result: CNNResult | None
+    crop_url: str | None
+    trajectory_url: str | None
+    clip_url: str | None
+
+    @field_serializer('occurred_at', when_used='json')
+    def serialize_utc(self, value):
+        return value.astimezone(timezone.utc).isoformat(timespec='microseconds').replace('+00:00', 'Z')

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 
 from ..dependencies import get_mobile_event_service, require_user_id
 from ..schemas.auth import ErrorResponse
-from ..schemas.mobile_event import MobileEventListParameters, MobileEventListResponse
+from ..schemas.mobile_event import MobileEventDetail, MobileEventListParameters, MobileEventListResponse
 from ..services.mobile_event_service import MobileEventService
 
 
@@ -29,3 +29,12 @@ def get_mobile_event_crop(event_id: Annotated[int, Path(ge=1, le=2**63 - 1)],
                           service: Annotated[MobileEventService, Depends(get_mobile_event_service)]):
     return Response(content=service.crop(event_id), media_type='image/jpeg',
                     headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+
+
+@router.get('/{event_id}', response_model=MobileEventDetail,
+            responses={404: {'model': ErrorResponse}, 409: {'model': ErrorResponse}})
+def get_mobile_event_detail(event_id: Annotated[int, Path(ge=1, le=2**63 - 1)],
+                            service: Annotated[MobileEventService, Depends(get_mobile_event_service)],
+                            response: Response):
+    response.headers['Cache-Control'] = 'no-store'
+    return service.detail(event_id)

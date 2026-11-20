@@ -4,7 +4,7 @@ from datetime import datetime, time, timedelta, timezone
 from ..repositories.mobile_event_repository import MobileEventRepository
 from ..errors import APIError
 from ..schemas.cnn_result import CNNResult
-from ..schemas.mobile_event import (KST, MobileEventCard, MobileEventCursor,
+from ..schemas.mobile_event import (KST, MobileEventCard, MobileEventCursor, MobileEventDetail,
                                     MobileEventListResponse)
 
 
@@ -13,6 +13,23 @@ class MobileEventService:
         self.session_factory = session_factory
         self.storage = storage
         self.repository = MobileEventRepository()
+
+    def detail(self, event_id):
+        with self.session_factory() as db:
+            row = self.repository.get_detail(db, event_id)
+            if row is None:
+                raise APIError(404, 'EVENT_NOT_FOUND', '등록되지 않은 이벤트입니다.', 'event_id')
+            event, camera_name, source = row
+            if event.event_type not in ('person_appeared', 'person_disappeared'):
+                raise APIError(409, 'EVENT_DETAIL_NOT_SUPPORTED', '인물 이벤트만 상세 조회할 수 있습니다.', 'event_id')
+            # 사라짐의 시각/타입은 유지하고 표시용 데이터만 연결된 등장으로부터 읽는다.
+            urls = {kind + '_url': (f'/api/v1/mobile/events/{event.event_id}/{kind}'
+                    if source is not None and getattr(source, kind + '_path') else None)
+                    for kind in ('crop', 'trajectory', 'clip')}
+            return MobileEventDetail(event_id=event.event_id, event_type=event.event_type,
+                occurred_at=event.occurred_at, global_person_id=event.global_person_id,
+                camera_id=event.camera_id, camera_name=camera_name,
+                cnn_result=source.cnn_result if source is not None else None, **urls)
 
     def crop(self, event_id):
         with self.storage.lock, self.session_factory() as db:

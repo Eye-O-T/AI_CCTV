@@ -691,6 +691,49 @@ PyQt 시작 시 회원가입 창과 로그인 창 중 어느 화면을 표시할
 
 ---
 
+## 모바일 인물 이벤트 상세 API — 1단계
+
+`GET /api/v1/mobile/events/{event_id}`를 추가했다. 모바일 상세 작업/연동 전 이 절을 읽는다. 기존 이벤트 상세·모바일 목록·crop API와 DB 구조는 유지한다. 이번 단계는 JSON 조회이며 궤적/클립 파일 전달은 후속 2/3단계다.
+
+### 요청과 응답
+
+- 기존 관리자 Access 토큰을 `Authorization: Bearer <access_token>`으로 전달한다. ID는 1~2^63−1 정수다. 로그인/세션 정책은 기존과 같다.
+- 인물 등장/사라짐만 지원한다. 성공 200 + Cache-Control: no-store. 발생 시각은 UTC 고정 소수 6자리 Z이며 카메라 이름은 현재 등록 이름이다.
+
+```json
+{
+  "event_id": 38,
+  "event_type": "person_disappeared",
+  "occurred_at": "2026-11-20T17:50:52.710282Z",
+  "global_person_id": 2,
+  "camera_id": 3,
+  "camera_name": "라즈베리파이",
+  "cnn_result": null,
+  "crop_url": "/api/v1/mobile/events/38/crop",
+  "trajectory_url": "/api/v1/mobile/events/38/trajectory",
+  "clip_url": "/api/v1/mobile/events/38/clip"
+}
+```
+
+- 등장은 자기 미디어 경로/cnn_result, 사라짐은 related_event_id로 연결된 등장 데이터를 사용한다. ID/종류/발생 시각/글로벌 ID/카메라는 선택한 이벤트 자체의 값이다.
+- cnn_result는 기존 CNNResult 전체(model_version/attributes)를 반환한다. 성별·나이 외 모자·상하의 색상·소매·하의 종류·소지품도 포함하며 분석 결과가 없으면 null이다. 기존 CNN API 계약을 따른다.
+- 미디어별 DB 경로가 없으면 해당 URL만 null이다. 결과/경로가 저장된 뒤 재조회하면 최신 정보가 반영된다. 분석 대기와 실패는 따로 구분하지 않는다.
+- URL은 서버 기준 상대 주소이며 저장소 절대경로/장치 주소는 노출하지 않는다. 파일 존재 확인/다운로드는 JSON 조회에서 하지 않으므로 저장소가 잠시 없어도 상세 정보는 조회 가능하다.
+- crop_url은 기존 이미지 API로 요청할 수 있다. **trajectory_url/clip_url은 후속 구현용 주소이며 현재 파일 GET은 404다.** 상세 응답에 이미지/영상 바이트나 Base64를 넣지 않는다.
+
+| 상태 | 오류 코드 | 조건 |
+| --- | --- | --- |
+| 401 | INVALID_ACCESS_TOKEN | 인증 누락/만료/Refresh 오용/로그아웃 세션 |
+| 404 | EVENT_NOT_FOUND | 이벤트 없음 |
+| 409 | EVENT_DETAIL_NOT_SUPPORTED | 카메라 시작/중지 이벤트 |
+| 422 | VALIDATION_ERROR | ID 형식/범위 오류 |
+
+### 1단계 확인
+
+같은 PC의 Postman에서 기존 로그인 후 Bearer Token을 설정하고 `http://127.0.0.1:9000/api/v1/mobile/events/인물이벤트ID`에 GET한다. 같은 Wi-Fi의 앱에서는 base URL을 실제 PC 내부 IP로 바꾼다. 등장과 사라짐을 각각 요청하여 자체 시각/타입 유지, 같은 관측의 CNN/미디어 결합을 확인한다. 이번 단계에서는 궤적/클립 URL에 대한 파일 수신을 검증하지 않는다.
+
+임시 DB의 자동 테스트는 `backend/tests/test_mobile_event_detail_api.py`이며 등장/사라짐, CNN 전체/미디어 재조회, null, 카메라/없는 이벤트/인증 오류, 기존 DTO 보존 및 실제 로컬 Uvicorn HTTP를 확인한다. 운영 DB·카메라·Postman 직접 실행·Flutter 확인과 구분한다. 구현/검증 현황은 [백엔드 README](../backend/README.md)의 모바일 상세 1단계를 따른다.
+
 ## 모바일 이벤트 목록 API — 2026-11-21 1~2단계
 
 기존 이벤트/인증 API를 유지하고 1단계 `GET /api/v1/mobile/events`, 2단계 `GET /api/v1/mobile/events/{event_id}/crop`을 추가했다. 모바일 목록/이미지 작업·연동 전 이 절을 읽는다. 상세보기·영상·Live는 제외한다. DB 변경 및 탐지/저장 흐름 변경도 없다.
