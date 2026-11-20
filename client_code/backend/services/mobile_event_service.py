@@ -1,5 +1,7 @@
-"""모바일 카드 목록과 검증된 crop 이미지 조회를 제공한다."""
+"""모바일 목록·상세·이미지 조회와 검증된 클립 파일 열기를 제공한다."""
 from datetime import datetime, time, timedelta, timezone
+import os
+import stat
 
 from ..repositories.mobile_event_repository import MobileEventRepository
 from ..errors import APIError
@@ -32,24 +34,57 @@ class MobileEventService:
                 cnn_result=source.cnn_result if source is not None else None, **urls)
 
     def crop(self, event_id):
+        return self._image(event_id, 'crop')
+
+    def trajectory(self, event_id):
+        return self._image(event_id, 'trajectory')
+
+    def open_clip(self, event_id):
         with self.storage.lock, self.session_factory() as db:
             event = self.repository.get(db, event_id)
             if event is None:
                 raise APIError(404, 'EVENT_NOT_FOUND', '등록되지 않은 이벤트입니다.', 'event_id')
             source = (self.repository.get(db, event.related_event_id)
                       if event.event_type == 'person_disappeared' else event)
-            if source is None or source.event_type != 'person_appeared' or source.crop_path is None:
-                raise APIError(404, 'EVENT_CROP_NOT_FOUND', '이벤트 이미지를 찾을 수 없습니다.')
+            if source is None or source.event_type != 'person_appeared' or source.clip_path is None:
+                raise APIError(404, 'EVENT_CLIP_NOT_FOUND', '이벤트 영상을 찾을 수 없습니다.')
+            handle = None
             try:
-                # 기존 저장소 검증을 재사용하되 clip/trajectory의 유무는 이미지 조회와 분리한다.
-                self.storage.validate_media(dict(crop_path=source.crop_path, clip_path=None,
-                    trajectory_path=None, camera_id=source.camera_id, global_person_id=source.global_person_id))
-                content = (self.storage.root / source.crop_path).read_bytes()
+                self.storage.validate_media(dict(crop_path=None, trajectory_path=None,
+                    clip_path=source.clip_path, camera_id=source.camera_id, global_person_id=source.global_person_id))
+                handle = (self.storage.root / source.clip_path).open('rb')
+                info = os.fstat(handle.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_size <= 0:
+                    raise ValueError('Completed clip required')
+                return handle, info.st_size
+            except (APIError, OSError, ValueError, RuntimeError):
+                if handle is not None:
+                    handle.close()
+                raise APIError(404, 'EVENT_CLIP_NOT_FOUND', '이벤트 영상을 찾을 수 없습니다.') from None
+
+    def _image(self, event_id, kind):
+        error_code = f'EVENT_{kind.upper()}_NOT_FOUND'
+        with self.storage.lock, self.session_factory() as db:
+            event = self.repository.get(db, event_id)
+            if event is None:
+                raise APIError(404, 'EVENT_NOT_FOUND', '등록되지 않은 이벤트입니다.', 'event_id')
+            source = (self.repository.get(db, event.related_event_id)
+                      if event.event_type == 'person_disappeared' else event)
+            path = getattr(source, kind + '_path') if source is not None else None
+            if source is None or source.event_type != 'person_appeared' or path is None:
+                raise APIError(404, error_code, '이벤트 이미지를 찾을 수 없습니다.')
+            try:
+                # 요청한 이미지 하나만 검증한다. 다른 미디어의 완료/소실 여부와 분리한다.
+                media = dict(crop_path=None, clip_path=None, trajectory_path=None)
+                media[kind + '_path'] = path
+                self.storage.validate_media(media | dict(camera_id=source.camera_id,
+                                                        global_person_id=source.global_person_id))
+                content = (self.storage.root / path).read_bytes()
                 if not content:
-                    raise ValueError('Empty crop')
+                    raise ValueError('Empty image')
             except (APIError, OSError, ValueError, RuntimeError):
                 # 저장소/파일 소실 및 경로 검증 실패에 내부 경로를 노출하지 않는다.
-                raise APIError(404, 'EVENT_CROP_NOT_FOUND', '이벤트 이미지를 찾을 수 없습니다.') from None
+                raise APIError(404, error_code, '이벤트 이미지를 찾을 수 없습니다.') from None
             return content
 
     def list(self, query):

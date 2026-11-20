@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "AI_CCTV 모바일 이벤트 목록 MVP",
+    "name": "AI_CCTV 모바일 이벤트 목록·상세 MVP",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "같은 PC의 실행 중인 관제 프로그램에 수동 요청하는 목록/crop 검증 자료. 로그인 외에는 GET만 포함한다. 실제 계정/토큰은 직접 입력하며 값이 포함된 파일을 공유하지 않는다. backend/README.md의 모바일 3단계 참고. 조건에 맞게 개별 Send하며 일괄 Runner용이 아니다."
+    "description": "목록·상세·이미지·클립 수동 검증 자료. 로그인 외 GET만 포함한다. 실제 계정/토큰은 직접 입력하고 공유하지 않는다. backend/README.md의 모바일 상세 4단계 참고. 조건에 맞게 개별 Send하며 일괄 Runner용이 아니다."
   },
   "auth": {
     "type": "bearer",
@@ -57,6 +57,11 @@
     },
     {
       "key": "before_event_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "camera_event_id",
       "value": "",
       "type": "string"
     }
@@ -137,6 +142,80 @@
         },
         "url": "{{base_url}}/api/v1/mobile/events?date={{date}}",
         "description": "401 INVALID_ACCESS_TOKEN. 컬렉션 인증을 상속하지 않는다."
+      }
+    },
+    {
+      "name": "08 모바일 인물 상세",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/mobile/events/{{event_id}}",
+        "description": "200 JSON/no-store. 인물 ID 사용. 자체 시각/타입·글로벌 ID·현재 카메라·CNN 전체·미디어 URL 확인. 사라짐 ID로도 반복. 준비 전 null이며 재조회로 최신 값 반영."
+      }
+    },
+    {
+      "name": "09 궤적 이미지",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/mobile/events/{{event_id}}/trajectory",
+        "description": "trajectory_url이 있을 때 200 image/jpeg/no-store. Body Preview에서 확인. 사라짐은 연결된 등장 이미지. 없으면 404 EVENT_TRAJECTORY_NOT_FOUND."
+      }
+    },
+    {
+      "name": "10 클립 전체 파일",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/mobile/events/{{event_id}}/clip",
+        "description": "clip_url이 있을 때 Send. Range 없는 별도 요청. 200 video/mp4, Accept-Ranges: bytes, Content-Length. 전체 응답을 파일로 저장해 재생 확인. 부분 파일은 재생 확인용이 아니다."
+      }
+    },
+    {
+      "name": "11 클립 부분 요청",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/mobile/events/{{event_id}}/clip",
+        "description": "클립이 있을 때 206. Content-Range bytes 0-1023/전체크기, Content-Length 1024. 작은 파일은 끝/길이 제한. 10의 전체 크기와 비교.",
+        "header": [
+          {
+            "key": "Range",
+            "value": "bytes=0-1023"
+          }
+        ]
+      }
+    },
+    {
+      "name": "12 클립 마지막 부분",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/mobile/events/{{event_id}}/clip",
+        "description": "클립이 있을 때 206. 마지막 최대 1024바이트. Content-Range 끝은 전체크기-1.",
+        "header": [
+          {
+            "key": "Range",
+            "value": "bytes=-1024"
+          }
+        ]
+      }
+    },
+    {
+      "name": "13 지원하지 않는 다중 Range",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/mobile/events/{{event_id}}/clip",
+        "description": "유효한 토큰/존재하는 클립일 때 416 INVALID_CLIP_RANGE, Content-Range bytes */전체크기. 파일 없음은 우선 404이므로 이 항목은 미확인으로 남긴다.",
+        "header": [
+          {
+            "key": "Range",
+            "value": "bytes=0-1,4-5"
+          }
+        ]
+      }
+    },
+    {
+      "name": "14 카메라 이벤트 상세 제한",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/v1/mobile/events/{{camera_event_id}}",
+        "description": "목록 camera_started/camera_stopped ID를 camera_event_id 변수에 입력한다. 409 EVENT_DETAIL_NOT_SUPPORTED가 정상."
       }
     }
   ]
