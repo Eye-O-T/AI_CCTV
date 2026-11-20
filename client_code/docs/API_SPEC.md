@@ -751,6 +751,8 @@ PyQt 시작 시 회원가입 창과 로그인 창 중 어느 화면을 표시할
 
 ### Postman으로 목록·crop 확인
 
+가져오기 가능한 [Postman 컬렉션](../backend/postman/mobile-events.postman_collection.json)과 변수 설정·수동 확인 항목은 [백엔드 README의 모바일 API 3단계](../backend/README.md)를 참고한다. 컬렉션에는 실제 계정·토큰이 없으며 직접 입력한다.
+
 관제 프로그램 실행 후 다음 순서로 요청한다. 현재 자동 실행 주소는 http://127.0.0.1:9000이며 같은 PC에서 테스트한다.
 
 1. POST `/api/v1/auth/login`, Body raw/JSON에 기존 username/password를 입력한다.

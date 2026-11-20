@@ -1,5 +1,45 @@
 # PC CCTV 백엔드
 
+## 모바일 API 3단계: 회귀 확인·Postman 인계 (2026-11-21)
+
+1·2단계의 제품 코드는 유지하며 기존 API 회귀 확인과 테스트 자료를 정리했다. 모바일 API 수동 확인 전에 [API 명세](../docs/API_SPEC.md#모바일-이벤트-목록-api--2026-11-21-12단계)와 이 절을 읽는다. 이번 단계는 Flutter·상세/영상/Live·서버 바인딩·방화벽을 변경하지 않는다.
+
+### Postman 준비 및 요청 순서
+
+1. 관제 프로그램을 정상 종료 후 다시 실행한다. Postman은 같은 PC에서 실행하며 base_url은 `http://127.0.0.1:9000`이다. 같은 DB로 별도 백엔드를 중복 실행하지 않는다.
+2. [Postman 컬렉션 JSON](postman/mobile-events.postman_collection.json)을 Import한다. 컬렉션 Variables의 username/password를 기존 계정으로, date를 기록이 있는 한국 날짜로 지정한다. limit 기본값은 30이며 페이지 확인 시 2처럼 줄일 수 있다.
+3. `01 로그인`을 Send하고 응답 access_token을 컬렉션 access_token 변수에 직접 복사한다. 나머지 요청은 컬렉션 Bearer 인증을 상속한다. 토큰 자동 저장 스크립트는 없다.
+4. `02 날짜별 목록`을 Send한다. crop_url이 있는 카드의 event_id를 변수에 복사하고 `03 crop 이미지`를 Send한다. Body Preview에서 이미지를 확인한다. 사라짐 카드 ID로도 반복한다.
+5. next_cursor가 있으면 두 값을 before_occurred_at/before_event_id 변수에 복사해 `04 다음 페이지`를 Send한다. null이면 생략한다. 같은 date/limit을 유지하고 커서의 UTC Z 문자열을 그대로 사용한다.
+6. `05 기존 이벤트 상세`로 기존 DTO를 확인한다. `06 잘못된 날짜`는 422, `07 인증 없는 목록`은 401이 정상이다. 컬렉션은 개별 Send용이며 일괄 Runner용이 아니다.
+
+### 확인 항목
+
+| 확인 | 기대 결과 |
+| --- | --- |
+| 로그인 | 200, Access/Refresh 발급. 관제 프로그램 로그인 유지 |
+| 날짜 목록 | 선택한 한국 날짜, 최신순 카드, items/next_cursor |
+| 인물 등장 | 글로벌 ID·현재 카메라 이름·UTC 시각·crop_url |
+| 인물 사라짐 | 자체 ID/타입/시각, 연결된 등장 이미지·분석 정보 |
+| 카메라 시작/중지 | 타입·카메라·시각, 인물/이미지/성별/나이는 null |
+| CNN 새로고침 | 분석 전 null, 실제 분석 저장 후 첫 페이지 재조회 시 결과 표시 |
+| 이미지 | 인증 포함 GET으로 200 image/jpeg, Cache-Control: no-store |
+| 페이지 | 중복 없이 이어짐, 마지막 next_cursor=null |
+| 기존 API | 기존 목록/상세 DTO 유지. 사라짐 원본 미디어/CNN은 null |
+| 오류 | 잘못된 날짜 422, 인증 누락/만료 401, 없는 이벤트 404 EVENT_NOT_FOUND, crop 없음 404 EVENT_CROP_NOT_FOUND |
+
+기록 없는 날짜는 date만 바꾸고 커서를 초기화해 items=[]를 확인한다. 존재하지 않는 이벤트 ID로 crop GET을 요청하면 EVENT_NOT_FOUND다. 실제 데이터에 해당 종류나 분석 전 상태가 없으면 미확인으로 남기며 운영 DB를 편집하거나 파일을 지워서 오류를 만들지 않는다. 새로고침/날짜 변경 시 커서를 초기화한다.
+
+Access 토큰은 최대 15분 유효하고 서버 재시작으로도 무효화된다. 401이면 다시 로그인해 변수를 바꾼다. 테스트 후 비밀번호/토큰 값을 지우며 실제 값이 들어간 컬렉션·응답은 공유하지 않는다. Postman 결과는 요청 이름·선택 날짜·HTTP 상태·기대 결과 일치 여부로 남기면 된다. 위 항목은 절차이며 사용자의 Postman 수행 완료를 뜻하지 않는다.
+
+### 3단계 자동 검증 결과
+
+- 기준 체크아웃: dev, f9c0fd03. 제품 코드 변경 없이 임시 DB/파일로 백엔드 전체 **114개 통과**(59.703초). 기존 인증·카메라·글로벌 인물·이벤트 API 및 모바일 목록/crop을 포함한다.
+- 실제 로컬 Uvicorn HTTP로 목록→CNN 재조회→crop JPEG→사라짐 이미지→파일 소실 404 흐름을 확인했다. 이 결과는 Postman 직접 조작·운영 DB·실제 카메라·Flutter·다른 기기 접속 검증을 뜻하지 않는다.
+- 기존 venv 실행기 대신 가용 python3.11.exe에 venv311/Lib/site-packages를 PYTHONPATH로 연결해 실행했다. 패키지는 변경하지 않았다. 기존 Starlette/httpx 폐기 예정 경고는 유지된다.
+- 컬렉션 JSON 구문·7개 요청의 경로/메서드와 실제 OpenAPI 일치·계정/토큰 기본값 공백·인증 없는 오류 요청을 정적으로 확인했다. git diff --check도 통과했다. Postman Import/Send 직접 실행 결과는 아니다.
+- 다음 단계는 사용자의 Postman API 확인이다. 서버 바인딩은 현재 127.0.0.1:9000 그대로이며 같은 PC에서만 확인한다.
+
 ## 모바일 crop 이미지 2단계 (2026-11-21)
 
 - `GET /api/v1/mobile/events/{event_id}/crop`을 추가했다. 목록 crop_url에 기존 Access Bearer 인증으로 GET하면 원본 image/jpeg를 반환한다. 등장/사라짐 모두 지원하며 사라짐은 연결된 등장 파일을 사용한다.
