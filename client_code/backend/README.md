@@ -1,8 +1,12 @@
 # PC CCTV 백엔드
 
-현재 SQLite 기반 인증 API 5개, 카메라 관리 API, 글로벌 인물 조회·등록·마지막 관측 갱신 API와 `GET /health`가 구현되어 있다. `users`, `server_runs`, `cameras`, `global_person_manage`, `events` 모델이 등록되어 서버 시작 시 없는 테이블을 생성한다. PC의 OSNet·Manager/API·카메라 큐·인증 종료·글로벌 ID 영상 표시를 연결했다. ReID 5단계 단일 인물 두 카메라 연결은 사용자 확인했으며 다른 사람/동시 인물·지속 성능은 미검증이다. 이벤트는 2단계 모델·DTO·Repository·Service·인증된 이벤트 API 4개·저장소 설정 API 2개까지 구현했으며 PC 공용 큐/카메라 연결은 3단계에서 구현했으며 인물/미디어 자동 연결도 4단계에서 구현했다. 실제 장치 종합 검증은 5단계다. 상세 검증은 [클라이언트 README](../README.md)를 참고한다.
+현재 SQLite 기반 인증 API 5개, 카메라 관리 API, 글로벌 인물 조회·등록·마지막 관측 갱신 API와 `GET /health`가 구현되어 있다. `users`, `server_runs`, `cameras`, `global_person_manage`, `events` 모델이 등록되어 서버 시작 시 없는 테이블을 생성한다. PC의 OSNet·Manager/API·카메라 큐·인증 종료·글로벌 ID 영상 표시를 연결했다. ReID 5단계 단일 인물 두 카메라 연결은 사용자 확인했으며 다른 사람/동시 인물·지속 성능은 미검증이다. 이벤트는 2단계 모델·DTO·Repository·Service·인증된 이벤트 API 4개·저장소 설정 API 2개까지 구현했으며 PC 공용 큐/카메라 연결은 3단계에서 구현했으며 인물/미디어 자동 연결도 4단계에서 구현했다. 5단계에서 합성·단일 웹캠 정상 흐름도 확인했다. 두 물리 카메라/RTSP·장시간 범위는 미검증이다. 상세 검증은 [클라이언트 README](../README.md)를 참고한다.
 
 이벤트 코드·저장 계약을 수정하거나 다음 단계를 시작할 때 [이벤트 MVP 개발 계획](../docs/EVENT_MVP_DEVELOPMENT_PLAN.md), [DB 스키마](../docs/BACKEND_SCHEMA.md)의 events 절, [API 명세](../docs/API_SPEC.md)의 이벤트 절을 읽는다. 이벤트 Router와 Service를 앱 수명에 연결했으며 Swagger/Postman에서 기존 Access로 사용할 수 있다. 다음 제품 서버 실행 시 없는 events만 추가되며 기존 네 테이블은 초기화하지 않는다.
+
+## 이벤트 MVP 5단계 검증 완료
+
+재검증/완료 범위 확인 전 [통합 검증 기록](../docs/EVENT_MVP_STAGE5_VALIDATION.md)을 읽는다. 자동 121개(백엔드 88개/카메라 14개/인물 19개), 제품 GUI/작업 스레드·별도 임시 HTTP·파일까지의 합성 종합 시나리오가 통과했다. 실제 웹캠 B에서 시작/등장/사라짐/중지 각 1건과 올바른 연결·시각·최종 미디어 경로·정상 로그아웃을 확인했다. 운영 계정/DB/설정·기존 미디어는 사용/수정하지 않았다. 실제 두 카메라/RTSP·다른 사람 구분·장시간/무손실 검증으로 확대 해석하지 않는다.
 
 ## 이벤트 MVP 2단계: API·저장소 설정
 

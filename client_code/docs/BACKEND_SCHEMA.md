@@ -115,7 +115,7 @@
 
 ## 6. 이벤트: `events` — 2026-11-19 MVP
 
-**2단계 모델·DTO·Repository·Service·이벤트 HTTP API·저장소 설정 구현 완료. PC 큐/카메라 연결과 4단계 인물/미디어 자동 전송까지 구현했다. 5단계 장치 종합 검증은 남아 있다.** [이벤트 개발 계획](EVENT_MVP_DEVELOPMENT_PLAN.md)을 이벤트 작업 전에 읽는다. 아래 정책은 과거 person_detected/매칭 대기 설계를 대체한다. OSNet/ReID는 이벤트 응답에 의존하지 않는다.
+**2단계 모델·DTO·Repository·Service·이벤트 HTTP API·저장소 설정 구현 완료. PC 큐/카메라 연결과 4단계 인물/미디어 자동 전송까지 구현했다. 5단계 합성·단일 웹캠 정상 검증까지 완료했으며 [검증 기록](EVENT_MVP_STAGE5_VALIDATION.md)의 제한을 따른다.** [이벤트 개발 계획](EVENT_MVP_DEVELOPMENT_PLAN.md)을 이벤트 작업 전에 읽는다. 아래 정책은 과거 person_detected/매칭 대기 설계를 대체한다. OSNet/ReID는 이벤트 응답에 의존하지 않는다.
 
 | 컬럼 | NULL | 의미 |
 | --- | --- | --- |
