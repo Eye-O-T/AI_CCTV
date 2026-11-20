@@ -11,9 +11,14 @@ from .services.camera_service import CameraService
 from .services.global_person_service import GlobalPersonService
 from .services.event_service import EventService
 from .services.storage_service import StorageService
+from .services.mobile_event_service import MobileEventService
 
 
 bearer = HTTPBearer(auto_error=False)
+
+
+def get_mobile_event_service(request: Request) -> MobileEventService:
+    return request.app.state.mobile_event_service
 
 
 def get_event_service(request: Request) -> EventService:

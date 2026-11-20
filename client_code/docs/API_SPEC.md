@@ -691,6 +691,83 @@ PyQt 시작 시 회원가입 창과 로그인 창 중 어느 화면을 표시할
 
 ---
 
+## 모바일 이벤트 목록 API — 2026-11-21 1~2단계
+
+기존 이벤트/인증 API를 유지하고 1단계 `GET /api/v1/mobile/events`, 2단계 `GET /api/v1/mobile/events/{event_id}/crop`을 추가했다. 모바일 목록/이미지 작업·연동 전 이 절을 읽는다. 상세보기·영상·Live는 제외한다. DB 변경 및 탐지/저장 흐름 변경도 없다.
+
+### 인증과 요청
+
+기존 로그인 API의 Access 토큰을 `Authorization: Bearer <access_token>`으로 전달한다. Refresh 토큰/만료/로그아웃한 세션은 401이다. 모바일 전용 계정이나 권한은 추가하지 않는다.
+
+| 쿼리 | 계약 |
+| --- | --- |
+| date | 필수 YYYY-MM-DD, 한국 시간(UTC+09:00) 기준 날짜 |
+| limit | 기본 30, 1~100 |
+| before_occurred_at | 다음 페이지 커서의 시간대 포함 시각 |
+| before_event_id | 다음 페이지 커서 ID. 시각과 함께 전달 |
+
+한국 날짜의 00:00 이상/다음 날 00:00 미만을 UTC로 변환하여 조회한다. 잘못된 날짜/커서/범위/알 수 없는 쿼리는 422 VALIDATION_ERROR다. 기존 목록과 같은 엄격한 정수 입력 규칙을 사용한다. 정렬은 occurred_at DESC, event_id DESC이고 모든 페이지에 date 조건을 유지한다. 과거 서버 실행 기록도 포함한다.
+
+### 응답
+
+```json
+{
+  "date": "2026-11-21",
+  "items": [
+    {
+      "event_id": 123,
+      "event_type": "person_appeared",
+      "global_person_id": 12,
+      "camera_id": 1,
+      "camera_name": "정문",
+      "occurred_at": "2026-11-21T03:30:00.000000Z",
+      "crop_url": "/api/v1/mobile/events/123/crop",
+      "estimated_gender": "Male",
+      "estimated_age": "청년"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+- 성공 200, Cache-Control: no-store. 빈 날짜는 items=[], next_cursor=null이다.
+- 다음 페이지가 있으면 next_cursor는 `{"before_occurred_at":"...Z","before_event_id":123}`이다. 두 값을 같은 date/limit과 함께 전달한다. 마지막 페이지는 null이다.
+- 발생 시각은 UTC 고정 소수 6자리 Z이며 앱에서 한국 시간으로 표시한다. 카메라 이름은 현재 등록 이름이다. 원본 장치 주소/저장소 경로는 반환하지 않는다.
+- 등장 카드는 자기 crop_path/cnn_result를 사용한다. 사라짐은 related_event_id의 등장 정보를 사용하며, 카드의 ID/종류/시각은 사라짐 자체의 값이다. 한 SELECT의 JOIN으로 카메라/등장 정보를 합친다.
+- CNN 결과가 없으면 estimated_gender/estimated_age는 null이다. 분석 대기/실패를 별도로 구분하지 않는다. 저장 후 같은 목록을 다시 GET하면 최신 결과가 나온다. 추정 성별은 Male/Female, 추정 나이는 소년/소녀/청년/장년이다.
+- 카메라 시작/중지의 global_person_id/crop_url/estimated_gender/estimated_age는 null이다.
+- crop_path가 없으면 crop_url=null이다. 경로가 있으면 위 상대 API 주소를 반환하며, 실제 파일 존재는 목록에서 검사하지 않는다. crop_url은 아래 이미지 GET으로 조회하며 파일이 사라졌어도 목록 전체를 실패시키지 않는다.
+- 새로고침은 커서를 초기화하고 해당 날짜 첫 페이지부터 조회한다. 실시간 스냅샷/구독/통계는 제공하지 않는다.
+
+### crop 이미지 — GET /api/v1/mobile/events/{event_id}/crop
+
+- 목록과 같은 관리자 Access Bearer 인증이 필요하다. ID는 1~2^63−1 정수다.
+- 등장은 자기 crop_path, 사라짐은 related_event_id로 연결된 등장 crop_path를 사용한다. 매 요청마다 현재 DB 경로를 읽으므로 폴더 이름 변경 후 경로 PATCH가 반영되면 같은 crop_url로 최신 파일을 받는다.
+- 성공 200 + JPEG 원본 바이트, Content-Type: image/jpeg, Cache-Control: no-store, X-Content-Type-Options: nosniff다. JSON/Base64가 아니며 절대경로를 반환하지 않는다.
+- 이벤트가 없으면 404 EVENT_NOT_FOUND. 카메라 이벤트/이미지 경로 없음/파일·저장소 없음/빈 파일/디렉터리/접근 실패/허용되지 않은 경로는 404 EVENT_CROP_NOT_FOUND다. 인증 실패는 401, 잘못된 ID는 422다. 오류는 기존 ErrorResponse이며 내부 파일 경로를 노출하지 않는다.
+- 기존 StorageService의 crop 경로 검증을 재사용한다. 저장소 루트, 상대 경로 문법, 이벤트/인물/카메라/날짜/파일명, 일반 파일·0바이트 여부, 저장소 경계와 심볼릭 링크·junction/reparse point를 검사한다. clip/trajectory가 없어도 crop만 있으면 조회한다.
+- 검증 후 파일을 바로 읽어 응답한다. 읽기 중 파일 소실/권한 오류도 위 404로 처리한다. JPEG 디코딩/변환은 수행하지 않으며 파일 내용과 생성 완료는 기존 PC 저장 책임이다. 외부 프로세스의 검증 직후 파일/링크 교체까지 원자적으로 보호하지 않는다.
+- 원본 crop을 메모리로 읽는 단순 MVP다. 영상/궤적 이미지/임의 파일 경로/정적 폴더 공개 API는 추가하지 않는다.
+
+### Postman으로 목록·crop 확인
+
+관제 프로그램 실행 후 다음 순서로 요청한다. 현재 자동 실행 주소는 http://127.0.0.1:9000이며 같은 PC에서 테스트한다.
+
+1. POST `/api/v1/auth/login`, Body raw/JSON에 기존 username/password를 입력한다.
+2. 응답 access_token을 GET 요청의 Authorization → Bearer Token에 입력한다.
+3. GET `/api/v1/mobile/events?date=2026-11-21&limit=30`을 요청한다. 실제 기록이 있는 한국 날짜를 선택한다.
+4. 네 이벤트 타입의 카드/사라짐 연결/CNN null을 확인한다. PC에서 분석이 저장된 뒤 같은 GET으로 최신 결과를 확인한다.
+5. next_cursor가 있으면 두 커서를 Params에 추가하고 date도 유지한다. 시각에 +09:00을 직접 넣는 경우 +가 URL 인코딩되도록 Params를 사용한다.
+6. 응답 crop_url이 있으면 `http://127.0.0.1:9000` 뒤에 붙여 새 GET 요청을 만든다. 이 요청에도 Authorization → Bearer Token을 설정한다. 성공 시 Body Preview에서 이미지와 Content-Type: image/jpeg를 확인한다. 브라우저에서 주소만 여는 방식은 인증 헤더가 없어 401이다.
+7. 사라짐 카드 crop_url도 동일 인물 관측의 등장 이미지를 반환하는지 확인한다. 카메라 카드는 crop_url=null이다.
+8. 빈 날짜 200/빈 목록, 잘못된 날짜 422, 인증 누락 401, 존재하지 않는 이벤트 이미지 404 EVENT_NOT_FOUND를 확인한다. 이미지가 없는 실제 이벤트는 404 EVENT_CROP_NOT_FOUND다. 운영 파일을 지워서 오류를 만들 필요는 없다.
+
+자동 검증은 `backend/tests/test_mobile_event_api.py`의 임시 DB/파일 TestClient 및 로컬 임시 Uvicorn HTTP로 수행한다. 운영 DB·카메라·Postman 직접 조작·Flutter·다른 기기 접속 검증과 구분한다. 테스트 실행 디렉터리는 프로젝트 루트다.
+
+```powershell
+.\venv311\Scripts\python.exe -B -m unittest discover -s client_code/backend/tests -v
+```
+
 ## 이벤트 API — PC 이벤트 MVP
 
 ### 구현 상태와 공통 규칙

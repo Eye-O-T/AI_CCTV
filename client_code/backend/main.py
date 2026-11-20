@@ -21,6 +21,8 @@ from .routers.events import router as event_router
 from .routers.settings import router as settings_router
 from .services.event_service import EventService
 from .services.storage_service import StorageService
+from .routers.mobile_events import router as mobile_event_router
+from .services.mobile_event_service import MobileEventService
 
 
 def create_app(db_path: Path | None = None, storage_config_path: Path | None = None) -> FastAPI:
@@ -47,6 +49,7 @@ def create_app(db_path: Path | None = None, storage_config_path: Path | None = N
                 application.state.global_person_service = global_persons
                 application.state.storage_service = storage
                 application.state.event_service = EventService(factory, run_id, storage)
+                application.state.mobile_event_service = MobileEventService(factory, storage)
                 yield
             finally:
                 if global_persons is not None:
@@ -91,6 +94,7 @@ def create_app(db_path: Path | None = None, storage_config_path: Path | None = N
     application.include_router(global_person_router)
     application.include_router(event_router)
     application.include_router(settings_router)
+    application.include_router(mobile_event_router)
 
     @application.get("/health")
     def health():
