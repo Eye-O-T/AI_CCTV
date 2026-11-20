@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGr
 from cameras.runtime_manager import CameraRuntimeManager
 from cameras.api_client import CameraApiClient, valid_camera
 from ui.camera_view import CameraView
+from ui.event_timeline import EventTimeline
 from ui.settings_window import SettingsWindow
 from ui.resource_monitor_window import ResourceMonitorWindow
 from events.coordinator import EventCoordinator
@@ -104,6 +105,8 @@ class CCTVMainWindow(QMainWindow):
             empty.setStyleSheet('background: #1e293b; color: #64748b; font-size: 22px;')
             self.empty_views.append(empty)
         body.addLayout(center, 1)
+        self.event_timeline = EventTimeline(self)
+        body.addWidget(self.event_timeline)
         layout.addLayout(body, 1)
         self.storage_label = QLabel('저장 경로가 설정되지 않았습니다. 설정 → 저장 설정에서 선택하세요.')
         self.storage_label.setTextFormat(Qt.PlainText)
