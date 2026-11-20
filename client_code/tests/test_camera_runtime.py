@@ -172,7 +172,8 @@ class VideoRuntimeTests(unittest.TestCase):
                 first.run()
                 self.assertEqual(recovery.call_args.kwargs['server_url'], CAM['edge_api_base_url'] + '/recover')
                 self.assertEqual(recovery.call_args.kwargs['camera_id'], 'camera_7')
-                self.assertEqual(recovery.call_args.kwargs['base_dir'], first.ai_cctv_path)
+                self.assertEqual(recovery.call_args.kwargs['base_dir'], first.recording_root)
+                self.assertNotIn('recovery_dir', recovery.call_args.kwargs)
             self.assertTrue(first.cleanup_ok)
 
     def test_no_edge_api_no_recovery(self):

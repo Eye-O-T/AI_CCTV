@@ -186,7 +186,7 @@ class VideoWorker(QThread):
             self.recovery_manager = NetworkRecoveryManager(
                 camera_id=f"camera_{self.camera_id}",
                 server_url=self.edge_api_base_url.rstrip("/") + "/recover",
-                base_dir=self.ai_cctv_path,
+                base_dir=self.recording_root,
                 min_failure_seconds=2.0,
                 request_timeout=60,
             )
@@ -666,6 +666,7 @@ class VideoWorker(QThread):
                 "message": (
                     "장애 복구 영상 저장 완료: "
                     f"{result.get('file_path')}"
+                    + (f" / {result['cleanup_warning']}" if result.get('cleanup_warning') else "")
                 ),
             })
         else:

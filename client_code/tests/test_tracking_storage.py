@@ -212,13 +212,13 @@ class TrackingStorageTests(unittest.TestCase):
                     manager.stop_recording()
             self.assertTrue(Path(manager.temp_save_path).exists())
 
-    def test_recovery_zip_and_merged_destination_stay_in_camera_run(self):
+    def test_recovery_zip_uses_root_temp_and_mp4_joins_original_recordings(self):
         import io
         import zipfile
         with TemporaryDirectory() as temp:
             for camera_id in (7, 8):
-                root = Path(temp) / 'cameras' / f'camera_{camera_id}' / 'execution'
-                manager = NetworkRecoveryManager(camera_id=f'camera_{camera_id}', base_dir=str(root))
+                manager = NetworkRecoveryManager(
+                    camera_id=f'camera_{camera_id}', base_dir=temp)
                 response = MagicMock(headers={})
                 zipped = io.BytesIO()
                 with zipfile.ZipFile(zipped, 'w') as archive:
@@ -226,10 +226,14 @@ class TrackingStorageTests(unittest.TestCase):
                 response.iter_content.return_value = [zipped.getvalue()]
                 payload = manager.build_payload(datetime(2026, 10, 8), datetime(2026, 10, 8, 0, 0, 4))
                 saved = manager._save_file_response(response, payload)
-                self.assertTrue(Path(saved).is_relative_to(root / '복구 영상'))
-                with patch.object(manager, '_merge_ts_files', return_value={'success': True}) as merge:
+                self.assertTrue(Path(saved).is_relative_to(Path(temp) / 'temp' / 'recovery' / f'camera_{camera_id}'))
+                def fake_merge(files, output, work):
+                    Path(output).write_bytes(b'synthetic MP4')
+                    return {'success': True}
+                with patch.object(manager, '_merge_ts_files', side_effect=fake_merge) as merge:
                     result = manager._extract_and_merge(saved, payload)
-                self.assertTrue(Path(result['file_path']).is_relative_to(root / '원본 녹화본'))
+                self.assertEqual(Path(result['file_path']).parent,
+                                 Path(temp) / '원본 녹화본' / '2026-10-08' / f'camera_{camera_id}')
                 self.assertEqual(len(merge.call_args.args[0]), 1)
 
     def test_recovery_thread_exception_is_reported_and_cleanup_waits(self):
