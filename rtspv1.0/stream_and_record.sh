@@ -3,7 +3,7 @@
 
 # 라즈베리파이 4 영상 송출 & 10초 로컬 백업 파이프라인 제어 스크립트
 # 동작 개요:
-#   이 스크립트는 라즈베리파이 libcamera로부터 실시간 영상을 캡처한 뒤,
+#   시작 시 USB 웹캠(우선) 또는 파이 카메라를 선택하여 실시간 영상을 캡처한 뒤,
 #   gstreamer의 Y자 분기 tee를 사용하여 스트림을 두 개로 쪼갭니다
 #     1) 로컬 백업 전송 : 10초 단위로 영상을 쪼개 TS 파일로 SD카드에 기록
 #     2) 실시간 영상 송출 : RTMP 전송망을 타고 로컬 MediaMTX 서버(라즈베리파이에서 돌아감)로 밀어 넣어 RTSP로 변환
@@ -27,6 +27,103 @@ VIDEO_BITRATE=4000        # H.264 영상 전송률 (kbps, 1080p 권장 시작값
 BACKUP_DIR="./backups"    # 로컬 녹화 세그먼트 파일이 보관될 폴더 경로
 RTSP_PATH="live"          # 중계 서버가 송출할 RTSP 서비스 식별 경로 (rtsp://IP:8554/live) 192.168.99.200으로 설정해둠.
 MEDIAMTX_VERSION="v1.9.0" # 다운로드할 미디어 프록시 서버(MediaMTX)의 지정 버전
+
+# 카메라 선택은 시작 시 한 번만 한다. 실행 중 장치 교체는 재실행이 필요하다.
+export LC_ALL=C  # v4l2-ctl의 장치/규격 출력을 일정한 언어로 조회한다.
+camera_error() {
+    echo "[CAMERA ERROR] $*" >&2
+    exit 1
+}
+
+for tool in v4l2-ctl gst-launch-1.0 gst-inspect-1.0 timeout awk; do
+    command -v "$tool" >/dev/null 2>&1 || camera_error "Required tool not found: $tool"
+done
+
+# uvcvideo USB 장치 중 실제 Video Capture 노드만 고른다.
+# /dev/video*에는 하드웨어 코덱과 웹캠 메타데이터 노드도 포함된다.
+USB_DEVICE=""
+for device in /dev/video*; do
+    [ -c "$device" ] || continue
+    if ! info=$(timeout -k 2s 5s v4l2-ctl -d "$device" --all 2>&1); then
+        # 조회 권한이 없는 USB 장치를 파이 카메라 없음으로 오인하지 않는다.
+        driver_path=$(readlink -f "/sys/class/video4linux/${device##*/}/device/driver" || true)
+        if [[ "$driver_path" == */uvcvideo ]]; then
+            camera_error "Cannot inspect USB camera $device. Check permissions/device usage. $info"
+        fi
+        continue
+    fi
+    [[ "$info" =~ Driver\ name[[:space:]]*:[[:space:]]*uvcvideo ]] || continue
+    # 메타데이터 노드는 영상 포맷 조회에 실패하므로 제외된다.
+    if timeout -k 2s 5s v4l2-ctl -d "$device" --get-fmt-video >/dev/null 2>&1; then
+        USB_DEVICE="$device"
+        break
+    fi
+done
+
+CAMERA_INPUT=()
+if [ -n "$USB_DEVICE" ]; then
+    formats=$(timeout -k 2s 5s v4l2-ctl -d "$USB_DEVICE" --list-formats-ext) ||
+        camera_error "Cannot read supported formats: $USB_DEVICE"
+    # MVP 지원 범위: MJPEG 또는 YUYV의 discrete 해상도/FPS. 720p30 우선.
+    selected=""
+    for mode in '1280 720 30' '640 480 30' '640 360 30' '640 480 15' '640 360 15'; do
+        read -r width height rate <<< "$mode"
+        for pixel in MJPG YUYV; do
+            if awk -v pixel="$pixel" -v size="${width}x${height}" -v fps="$rate" '
+                /\[[0-9]+\]:/ { format_ok = index($0, "\047" pixel "\047") > 0; size_ok = 0 }
+                /Size:/ { size_ok = ($2 == "Discrete" && $3 == size) }
+                format_ok && size_ok && /Interval: Discrete/ && index($0, "(" fps ".000 fps)") { found = 1 }
+                END { exit !found }
+            ' <<< "$formats"; then
+                selected="$pixel"
+                break
+            fi
+        done
+        [ -z "$selected" ] || break
+    done
+    [ -n "$selected" ] || camera_error "No supported USB mode on $USB_DEVICE (MJPG/YUYV, 720p30 or VGA/360p30/15)."
+    RESOLUTION_WIDTH="$width"
+    RESOLUTION_HEIGHT="$height"
+    FPS="$rate"
+    CAMERA_INPUT=(v4l2src "device=$USB_DEVICE")
+    if [ "$selected" = MJPG ]; then
+        CAMERA_INPUT+=('!' "image/jpeg,width=$width,height=$height,framerate=$rate/1" '!' jpegdec)
+        gst-inspect-1.0 jpegdec >/dev/null 2>&1 || camera_error "GStreamer jpegdec is missing."
+    else
+        CAMERA_INPUT+=('!' "video/x-raw,format=YUY2,width=$width,height=$height,framerate=$rate/1")
+    fi
+    echo "[CAMERA] USB $USB_DEVICE: $selected ${width}x${height} ${rate}fps"
+    SOURCE_ELEMENT=v4l2src
+else
+    # 파이 카메라는 기존 입력/해상도/FPS를 유지한다.
+    if command -v rpicam-hello >/dev/null 2>&1; then
+        camera_list_tool=rpicam-hello
+    elif command -v libcamera-hello >/dev/null 2>&1; then
+        camera_list_tool=libcamera-hello
+    else
+        camera_error "No USB camera found; install rpicam-apps/libcamera-apps to check the Pi camera."
+    fi
+    cameras=$(timeout -k 2s 10s "$camera_list_tool" --list-cameras 2>&1) ||
+        camera_error "Pi camera enumeration failed: $cameras"
+    if ! grep -Eq '^[[:space:]]*[0-9]+[[:space:]]*:' <<< "$cameras"; then
+        camera_error "No USB or Pi camera found. $cameras"
+    fi
+    CAMERA_INPUT=(libcamerasrc '!' "video/x-raw,width=$RESOLUTION_WIDTH,height=$RESOLUTION_HEIGHT,framerate=$FPS/1")
+    echo "[CAMERA] Pi camera: ${RESOLUTION_WIDTH}x${RESOLUTION_HEIGHT} ${FPS}fps"
+    SOURCE_ELEMENT=libcamerasrc
+fi
+
+for element in "$SOURCE_ELEMENT" videoconvert x264enc h264parse tee queue splitmuxsink flvmux rtmpsink identity fakesink; do
+    gst-inspect-1.0 "$element" >/dev/null 2>&1 || camera_error "GStreamer element is missing: $element"
+done
+
+# 중계기 시작 전에 선택한 입력에서 실제 프레임을 받을 수 있는지 짧게 확인한다.
+# 선택 실패/사용 중이면 다른 카메라로 조용히 바꾸지 않고 원인을 표시한다.
+echo "[CAMERA] Checking camera frames (timeout: 12 seconds)..."
+if ! timeout -k 2s 12s gst-launch-1.0 -q "${CAMERA_INPUT[@]}" \
+    '!' videoconvert '!' identity eos-after=5 '!' fakesink sync=false; then
+    camera_error "Frame check failed. Check camera connection, permissions, format, or another process using it."
+fi
 
 # 녹화본 저장 폴더가 없으면 자동으로 새로 만들어 줍니다. (-p: 부모 폴더도 함께 생성)
 mkdir -p "$BACKUP_DIR"
@@ -109,8 +206,7 @@ trap cleanup SIGINT SIGTERM # Ctrl+C(SIGINT) 및 강제종료(SIGTERM) 신호를
 #   (예: v4l2h264enc extra-controls="controls,h264_i_frame_period=30")
 
 gst-launch-1.0 -e \
-    libcamerasrc ! \
-    video/x-raw,width=${RESOLUTION_WIDTH},height=${RESOLUTION_HEIGHT},framerate=${FPS}/1 ! \
+    "${CAMERA_INPUT[@]}" ! \
     videoconvert ! \
     x264enc tune=zerolatency speed-preset=ultrafast bitrate=${VIDEO_BITRATE} key-int-max=15 bframes=0 threads=4 sliced-threads=true ! \
     h264parse config-interval=1 ! \
