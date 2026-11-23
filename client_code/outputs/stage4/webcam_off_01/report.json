@@ -1,0 +1,243 @@
+{
+  "label": "webcam_off_01",
+  "ai_requested": false,
+  "requested_seconds": 20,
+  "warmup_end_seconds": 3.0049447000001237,
+  "elapsed_seconds": 25.00555200000008,
+  "stop_seconds": 1.0088725000000522,
+  "samples": [
+    {
+      "elapsed": 1.01,
+      "process_cpu_pct": 7.8,
+      "system_cpu_pct": 6.4,
+      "rss_mb": 405.453125,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 2.0,
+      "process_cpu_pct": 7.8,
+      "system_cpu_pct": 18.6,
+      "rss_mb": 448.796875,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 3.0,
+      "process_cpu_pct": 7.8,
+      "system_cpu_pct": 2.7,
+      "rss_mb": 483.30859375,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 4.0,
+      "process_cpu_pct": 9.4,
+      "system_cpu_pct": 12.0,
+      "rss_mb": 482.03125,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 5.0,
+      "process_cpu_pct": 17.2,
+      "system_cpu_pct": 6.0,
+      "rss_mb": 480.69921875,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 6.0,
+      "process_cpu_pct": 6.2,
+      "system_cpu_pct": 4.1,
+      "rss_mb": 480.71484375,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 7.0,
+      "process_cpu_pct": 9.4,
+      "system_cpu_pct": 7.1,
+      "rss_mb": 480.7421875,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 8.0,
+      "process_cpu_pct": 7.8,
+      "system_cpu_pct": 7.2,
+      "rss_mb": 480.75390625,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 9.0,
+      "process_cpu_pct": 7.8,
+      "system_cpu_pct": 9.3,
+      "rss_mb": 480.75390625,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 10.0,
+      "process_cpu_pct": 10.9,
+      "system_cpu_pct": 6.9,
+      "rss_mb": 483.5546875,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 11.0,
+      "process_cpu_pct": 17.2,
+      "system_cpu_pct": 4.7,
+      "rss_mb": 480.9140625,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 12.0,
+      "process_cpu_pct": 26.6,
+      "system_cpu_pct": 5.9,
+      "rss_mb": 481.5546875,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 13.0,
+      "process_cpu_pct": 14.1,
+      "system_cpu_pct": 5.7,
+      "rss_mb": 481.546875,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 14.0,
+      "process_cpu_pct": 12.5,
+      "system_cpu_pct": 9.0,
+      "rss_mb": 481.64453125,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 15.01,
+      "process_cpu_pct": 18.8,
+      "system_cpu_pct": 3.8,
+      "rss_mb": 484.2890625,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 16.0,
+      "process_cpu_pct": 10.9,
+      "system_cpu_pct": 3.8,
+      "rss_mb": 481.6484375,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 17.0,
+      "process_cpu_pct": 12.5,
+      "system_cpu_pct": 2.1,
+      "rss_mb": 481.65234375,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 18.0,
+      "process_cpu_pct": 14.1,
+      "system_cpu_pct": 3.4,
+      "rss_mb": 481.65234375,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 19.0,
+      "process_cpu_pct": 12.5,
+      "system_cpu_pct": 4.2,
+      "rss_mb": 481.65234375,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 20.01,
+      "process_cpu_pct": 6.2,
+      "system_cpu_pct": 2.3,
+      "rss_mb": 481.9765625,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 21.01,
+      "process_cpu_pct": 23.4,
+      "system_cpu_pct": 4.6,
+      "rss_mb": 485.5234375,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 22.0,
+      "process_cpu_pct": 14.1,
+      "system_cpu_pct": 3.7,
+      "rss_mb": 488.1640625,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 23.0,
+      "process_cpu_pct": 4.7,
+      "system_cpu_pct": 5.8,
+      "rss_mb": 485.421875,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 24.0,
+      "process_cpu_pct": 17.2,
+      "system_cpu_pct": 8.5,
+      "rss_mb": 485.546875,
+      "cuda_allocated_mb": 0.0
+    },
+    {
+      "elapsed": 25.0,
+      "process_cpu_pct": 1.6,
+      "system_cpu_pct": 3.3,
+      "rss_mb": 455.265625,
+      "cuda_allocated_mb": 0.0
+    }
+  ],
+  "cameras": [
+    {
+      "camera_id": 2,
+      "kind": "webcam",
+      "inference_ms": null,
+      "events": [],
+      "statuses": [
+        "연결 중"
+      ],
+      "read_ms": {
+        "mean": 51.237,
+        "p95": 77.943,
+        "max": 596.156
+      },
+      "shape": [
+        720,
+        1280,
+        3
+      ],
+      "frames": 380,
+      "first_frame_seconds": 2.0806795000000875,
+      "steady_fps": 16.53368526445183,
+      "frame_interval_ms": {
+        "mean": 60.483,
+        "p95": 89.225,
+        "max": 101.455
+      },
+      "max_persons": 0,
+      "cleanup_ok": true,
+      "storage_error_count": 0,
+      "ai_active_at_end": false,
+      "run_directory": "media\\cameras\\camera_2\\83c4b086850b4d8aae1abccf28331f26",
+      "media": [
+        {
+          "path": "media\\cameras\\camera_2\\83c4b086850b4d8aae1abccf28331f26\\원본 녹화본\\2026-10-08_09-50-37_012155~2026-10-08_09-50-47.mp4",
+          "bytes": 2069726,
+          "decoded_frames": 240,
+          "fps": 24.0,
+          "duration": 10.0
+        },
+        {
+          "path": "media\\cameras\\camera_2\\83c4b086850b4d8aae1abccf28331f26\\원본 녹화본\\2026-10-08_09-50-47_091469~2026-10-08_09-50-57.mp4",
+          "bytes": 1709720,
+          "decoded_frames": 240,
+          "fps": 24.0,
+          "duration": 10.0
+        },
+        {
+          "path": "media\\cameras\\camera_2\\83c4b086850b4d8aae1abccf28331f26\\원본 녹화본\\2026-10-08_09-50-57_133834~2026-10-08_09-50-59.mp4",
+          "bytes": 255787,
+          "decoded_frames": 48,
+          "fps": 24.0,
+          "duration": 2.0
+        }
+      ],
+      "trajectory_images": []
+    }
+  ]
+}

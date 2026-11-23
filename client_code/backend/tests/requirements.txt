@@ -1,0 +1,2 @@
+# unittest는 Python 표준 라이브러리. FastAPI TestClient와 실제 HTTP 검증용.
+httpx>=0.28,<0.29

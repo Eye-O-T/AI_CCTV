@@ -1,8 +1,23 @@
 venv/
+venv311/
 .env
-
+venv311_AI/
 __pycache__/
 *.py[cod]
 
+*.jpg
 *.mp4
 *.pt
+
+# Backend runtime state (accounts, execution history and process lock)
+client_code/backend/data/
+
+# Camera crop MVP output (local runtime media)
+/output/
+
+# In-progress media; completed recordings are moved to the selected storage.
+/temp/
+
+# ReID weights are fetched separately with a pinned SHA-256.
+/client_code/reid/weights/*.pth
+/client_code/reid/weights/*.download

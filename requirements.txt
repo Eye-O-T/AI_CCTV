@@ -10,7 +10,13 @@ matplotlib
 scipy
 pyyaml
 requests
+fastapi
+uvicorn
 psutil
-mediapipe
 insightface
 onnxruntime
+discord.py>=2.0.0
+PyQt5
+SQLAlchemy>=2.0,<2.1
+PyJWT>=2.10,<3
+argon2-cffi>=25.1,<26
